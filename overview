@@ -1,0 +1,53 @@
+1. Fee Collection and Distribution
+Do we store the stakers’ rewards as a balance per user in the pool, or stream them out incrementally per interaction?
+
+Recommendation: track claimable balances and let users claim() to save gas.
+
+STONER pool share: should the fees be sent directly on each swap, or pooled and claimed later?
+
+Recommendation: track total claimable across all pools, claimable by $STONER holders.
+
+2. NFT Metadata / Trait Filtering
+Should we allow users to filter what traits they want to avoid or keep when rerolling (e.g., avoid commons)?
+
+If not, we’ll keep it pure random for now — but this could be added later.
+
+3. Staker Reward Calculation
+Is the staker reward split:
+
+Equal per staked NFT, or
+
+Proportional by time staked, or
+
+Weighted by rarity (future feature)?
+
+Recommendation: equal per NFT for simplicity.
+
+4. Unstaking Mechanism
+If a staker’s NFT has been swapped, they no longer have a claim — correct?
+
+If yes, unstake just fails unless they already have a replacement in the pool.
+
+5. Reentrancy & Abuse Protections
+For swap logic: if someone front-runs or triggers rapid swaps, do you want to rate-limit swaps (e.g., max 1 per tx or cooldown)?
+
+Might not be needed now, but a good guardrail.
+
+6. Dev Wallets & Ownership Controls
+Do you want a dev wallet:
+
+To receive a portion of the swap fee?
+
+Or just retain ownership for future upgrades?
+
+Should pools be upgradeable (via proxy) or keep it simple with fixed logic?
+
+7. Frontend Considerations
+Will the DApp allow:
+
+Users to view the pool contents before swapping?
+
+Users to see their staked NFTs and pending rewards?
+
+Sorting by rarity/traits eventually?
+
