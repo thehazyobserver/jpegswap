@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.19;
 
-import "@openzeppelin/contracts-upgradeable/token/ERC721/IERC721Upgradeable.sol";
-import "@openzeppelin/contracts-upgradeable/token/ERC721/utils/ERC721HolderUpgradeable.sol";
-import "@openzeppelin/contracts-upgradeable/token/ERC20/IERC20Upgradeable.sol";
-import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
-import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
-import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+import "https://raw.githubusercontent.com/OpenZeppelin/openzeppelin-contracts-upgradeable/v4.8.3/contracts/proxy/utils/Initializable.sol";
+import "https://raw.githubusercontent.com/OpenZeppelin/openzeppelin-contracts-upgradeable/v4.8.3/contracts/access/OwnableUpgradeable.sol";
+import "https://raw.githubusercontent.com/OpenZeppelin/openzeppelin-contracts-upgradeable/v4.8.3/contracts/proxy/utils/UUPSUpgradeable.sol";
+import "https://raw.githubusercontent.com/OpenZeppelin/openzeppelin-contracts-upgradeable/v4.8.3/contracts/token/ERC721/IERC721Upgradeable.sol";
+import "https://raw.githubusercontent.com/OpenZeppelin/openzeppelin-contracts-upgradeable/v4.8.3/contracts/token/ERC721/utils/ERC721HolderUpgradeable.sol";
+import "https://raw.githubusercontent.com/OpenZeppelin/openzeppelin-contracts-upgradeable/v4.8.3/contracts/token/ERC20/IERC20Upgradeable.sol";
 
 interface IStakeReceipt {
     function mint(address to, uint256 tokenId) external;
@@ -40,7 +40,7 @@ contract SwapPool is Initializable, OwnableUpgradeable, ERC721HolderUpgradeable,
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
-        _disableInitializers(); // prevents direct deployment of logic
+        _disableInitializers();
     }
 
     function initialize(
@@ -149,6 +149,5 @@ contract SwapPool is Initializable, OwnableUpgradeable, ERC721HolderUpgradeable,
         stonerFeeShare = share;
     }
 
-    /// @dev required for UUPS upgradeable proxy pattern
     function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}
 }

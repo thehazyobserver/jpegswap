@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.19;
 
-import "@openzeppelin/contracts-upgradeable/token/ERC721/IERC721Upgradeable.sol";
-import "@openzeppelin/contracts-upgradeable/token/ERC20/IERC20Upgradeable.sol";
-import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
-import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
-import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+// NOTE: These imports MUST be replaced with raw GitHub links or manually added files in Remix if you don't flatten
+import "https://raw.githubusercontent.com/OpenZeppelin/openzeppelin-contracts-upgradeable/v4.8.3/contracts/proxy/utils/Initializable.sol";
+import "https://raw.githubusercontent.com/OpenZeppelin/openzeppelin-contracts-upgradeable/v4.8.3/contracts/access/OwnableUpgradeable.sol";
+import "https://raw.githubusercontent.com/OpenZeppelin/openzeppelin-contracts-upgradeable/v4.8.3/contracts/proxy/utils/UUPSUpgradeable.sol";
+import "https://raw.githubusercontent.com/OpenZeppelin/openzeppelin-contracts-upgradeable/v4.8.3/contracts/token/ERC721/IERC721Upgradeable.sol";
+import "https://raw.githubusercontent.com/OpenZeppelin/openzeppelin-contracts-upgradeable/v4.8.3/contracts/token/ERC20/IERC20Upgradeable.sol";
 
 contract StonerFeePool is Initializable, OwnableUpgradeable, UUPSUpgradeable {
     IERC721Upgradeable public stonerNFT;
@@ -31,9 +32,9 @@ contract StonerFeePool is Initializable, OwnableUpgradeable, UUPSUpgradeable {
     }
 
     function stake(uint256 tokenId) external {
-        stonerNFT.transferFrom(msg.sender, address(this), tokenId);
         require(stakerOf[tokenId] == address(0), "Already staked");
 
+        stonerNFT.transferFrom(msg.sender, address(this), tokenId);
         stakerOf[tokenId] = msg.sender;
         stakedCount[msg.sender]++;
         totalStaked++;
@@ -50,6 +51,7 @@ contract StonerFeePool is Initializable, OwnableUpgradeable, UUPSUpgradeable {
 
     function notifyReward(uint256 amount) external {
         require(totalStaked > 0, "No stakers");
+        require(rewardToken.transferFrom(msg.sender, address(this), amount), "Transfer failed");
 
         uint256 perToken = amount / totalStaked;
 
@@ -59,8 +61,6 @@ contract StonerFeePool is Initializable, OwnableUpgradeable, UUPSUpgradeable {
                 rewards[staker] += perToken;
             }
         }
-
-        require(rewardToken.transferFrom(msg.sender, address(this), amount), "Transfer failed");
     }
 
     function claim() external {
