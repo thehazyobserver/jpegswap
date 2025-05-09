@@ -1,46 +1,58 @@
-
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.19;
 
-import "https://raw.githubusercontent.com/OpenZeppelin/openzeppelin-contracts-upgradeable/v4.8.3/contracts/proxy/utils/Initializable.sol";
-import "https://raw.githubusercontent.com/OpenZeppelin/openzeppelin-contracts-upgradeable/v4.8.3/contracts/access/OwnableUpgradeable.sol";
-import "https://raw.githubusercontent.com/OpenZeppelin/openzeppelin-contracts-upgradeable/v4.8.3/contracts/proxy/utils/UUPSUpgradeable.sol";
-import "https://raw.githubusercontent.com/OpenZeppelin/openzeppelin-contracts-upgradeable/v4.8.3/contracts/token/ERC721/IERC721Upgradeable.sol";
-import "https://raw.githubusercontent.com/OpenZeppelin/openzeppelin-contracts-upgradeable/v4.8.3/contracts/token/ERC20/IERC20Upgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/token/ERC721/IERC721Upgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/token/ERC20/IERC20Upgradeable.sol";
 
 contract StonerFeePool is Initializable, OwnableUpgradeable, UUPSUpgradeable {
     IERC721Upgradeable public stonerNFT;
-
+    uint256[] public allStakedTokenIds;
     mapping(uint256 => address) public stakerOf;
     mapping(address => uint256[]) public stakedTokens;
-    mapping(address => mapping(address => uint256)) public rewardsPerToken; // user => token => reward
-
+    mapping(address => mapping(address => uint256)) public rewardsPerToken;
     mapping(address => bool) public allowedRewardTokens;
     address[] public rewardTokens;
-
+    mapping(address => uint256) public rewardDust;
     uint256 public totalStaked;
 
-    /// @custom:oz-upgrades-unsafe-allow constructor
-    constructor() {
-        _disableInitializers();
-    }
+    event RewardTokenAdded(address token);
+    event Staked(address indexed user, uint256 tokenId);
+    event Unstaked(address indexed user, uint256 tokenId);
+    event RewardClaimed(address indexed user, address token, uint256 amount);
+
+    error AlreadyInitialized();
+    error NotInitialized();
+    error TokenNotAllowed();
+    error NoRewards();
+    error TransferFailed();
+    error AlreadyStaked();
+    error NotYourToken();
+    error NoStakers();
 
     function initialize(address _stonerNFT) public initializer {
+        if (address(stonerNFT) != address(0)) revert AlreadyInitialized();
         __Ownable_init();
         __UUPSUpgradeable_init();
         stonerNFT = IERC721Upgradeable(_stonerNFT);
     }
 
     function stake(uint256 tokenId) external {
-        require(stakerOf[tokenId] == address(0), "Already staked");
+        if (address(stonerNFT) == address(0)) revert NotInitialized();
+        if (stakerOf[tokenId] != address(0)) revert AlreadyStaked();
         stonerNFT.transferFrom(msg.sender, address(this), tokenId);
         stakerOf[tokenId] = msg.sender;
         stakedTokens[msg.sender].push(tokenId);
+        allStakedTokenIds.push(tokenId);
         totalStaked++;
+        emit Staked(msg.sender, tokenId);
     }
 
     function unstake(uint256 tokenId) external {
-        require(stakerOf[tokenId] == msg.sender, "Not your token");
+        if (address(stonerNFT) == address(0)) revert NotInitialized();
+        if (stakerOf[tokenId] != msg.sender) revert NotYourToken();
         stonerNFT.transferFrom(address(this), msg.sender, tokenId);
         delete stakerOf[tokenId];
 
@@ -52,21 +64,36 @@ contract StonerFeePool is Initializable, OwnableUpgradeable, UUPSUpgradeable {
                 break;
             }
         }
+
+        for (uint i = 0; i < allStakedTokenIds.length; i++) {
+            if (allStakedTokenIds[i] == tokenId) {
+                allStakedTokenIds[i] = allStakedTokenIds[allStakedTokenIds.length - 1];
+                allStakedTokenIds.pop();
+                break;
+            }
+        }
         totalStaked--;
+        emit Unstaked(msg.sender, tokenId);
     }
 
     function notifyReward(address token, uint256 amount) external {
-        require(totalStaked > 0, "No stakers");
-        require(IERC20Upgradeable(token).transferFrom(msg.sender, address(this), amount), "Transfer failed");
+        if (address(stonerNFT) == address(0)) revert NotInitialized();
+        if (totalStaked == 0) revert NoStakers();
+        if (!IERC20Upgradeable(token).transferFrom(msg.sender, address(this), amount)) revert TransferFailed();
 
         if (!allowedRewardTokens[token]) {
             allowedRewardTokens[token] = true;
             rewardTokens.push(token);
+            emit RewardTokenAdded(token);
         }
 
-        uint256 perTokenReward = amount / totalStaked;
+        uint256 totalAmount = amount + rewardDust[token];
+        uint256 perTokenReward = totalAmount / totalStaked;
+        uint256 newDust = totalAmount % totalStaked;
+        rewardDust[token] = newDust;
 
-        for (uint256 tokenId = 0; tokenId < 10000; tokenId++) {
+        for (uint i = 0; i < allStakedTokenIds.length; i++) {
+            uint256 tokenId = allStakedTokenIds[i];
             address staker = stakerOf[tokenId];
             if (staker != address(0)) {
                 rewardsPerToken[staker][token] += perTokenReward;
@@ -75,32 +102,31 @@ contract StonerFeePool is Initializable, OwnableUpgradeable, UUPSUpgradeable {
     }
 
     function claim(address token) external {
+        if (address(stonerNFT) == address(0)) revert NotInitialized();
+        if (!allowedRewardTokens[token]) revert TokenNotAllowed();
         uint256 amt = rewardsPerToken[msg.sender][token];
-        require(amt > 0, "No rewards");
+        if (amt == 0) revert NoRewards();
         rewardsPerToken[msg.sender][token] = 0;
-        require(IERC20Upgradeable(token).transfer(msg.sender, amt), "Transfer failed");
+        if (!IERC20Upgradeable(token).transfer(msg.sender, amt)) revert TransferFailed();
+        emit RewardClaimed(msg.sender, token, amt);
     }
 
-    function claimAll() external {
-        for (uint i = 0; i < rewardTokens.length; i++) {
-            address token = rewardTokens[i];
+    function claimMultiple(address[] calldata tokens) external {
+        if (address(stonerNFT) == address(0)) revert NotInitialized();
+        for (uint i = 0; i < tokens.length; i++) {
+            address token = tokens[i];
+            if (!allowedRewardTokens[token]) continue;
             uint256 amt = rewardsPerToken[msg.sender][token];
             if (amt > 0) {
                 rewardsPerToken[msg.sender][token] = 0;
-                IERC20Upgradeable(token).transfer(msg.sender, amt);
+                if (!IERC20Upgradeable(token).transfer(msg.sender, amt)) revert TransferFailed();
+                emit RewardClaimed(msg.sender, token, amt);
             }
         }
     }
 
-    function getClaimableRewards(address user) external view returns (address[] memory tokens, uint256[] memory amounts) {
-        uint256 len = rewardTokens.length;
-        tokens = new address[](len);
-        amounts = new uint256[](len);
-        for (uint i = 0; i < len; i++) {
-            address token = rewardTokens[i];
-            tokens[i] = token;
-            amounts[i] = rewardsPerToken[user][token];
-        }
+    function getRewardTokens() external view returns (address[] memory) {
+        return rewardTokens;
     }
 
     function getStakedTokens(address user) external view returns (uint256[] memory) {

@@ -1,168 +1,94 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.19;
 
-import "https://raw.githubusercontent.com/OpenZeppelin/openzeppelin-contracts-upgradeable/v4.8.3/contracts/proxy/utils/Initializable.sol";
-import "https://raw.githubusercontent.com/OpenZeppelin/openzeppelin-contracts-upgradeable/v4.8.3/contracts/access/OwnableUpgradeable.sol";
-import "https://raw.githubusercontent.com/OpenZeppelin/openzeppelin-contracts-upgradeable/v4.8.3/contracts/proxy/utils/UUPSUpgradeable.sol";
-import "https://raw.githubusercontent.com/OpenZeppelin/openzeppelin-contracts-upgradeable/v4.8.3/contracts/token/ERC721/IERC721Upgradeable.sol";
-import "https://raw.githubusercontent.com/OpenZeppelin/openzeppelin-contracts-upgradeable/v4.8.3/contracts/token/ERC721/utils/ERC721HolderUpgradeable.sol";
-import "https://raw.githubusercontent.com/OpenZeppelin/openzeppelin-contracts-upgradeable/v4.8.3/contracts/token/ERC20/IERC20Upgradeable.sol";
+import "@openzeppelin/contracts/token/ERC721/IERC721.sol";
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
 
-interface IStakeReceipt {
-    function mint(address to, uint256 tokenId) external;
-    function burn(uint256 tokenId) external;
-}
-
-interface IStonerFeePool {
-    function notifyReward(uint256 amount) external;
-}
-
-contract SwapPool is Initializable, OwnableUpgradeable, ERC721HolderUpgradeable, UUPSUpgradeable {
-    IERC721Upgradeable public nftCollection;
-    IERC20Upgradeable public feeToken;
-    IStakeReceipt public receipt;
-    IStonerFeePool public stonerPool;
-
+contract SwapPool is Ownable {
+    address public nftCollection;
+    address public feeToken;
+    address public receiptContract;
+    address public stonerPool;
     uint256 public swapFee;
     uint256 public minStakeDuration;
-    uint256 public stonerFeeShare;
+    uint256 public stonerShare;
 
-    struct StakeInfo {
-        address staker;
-        uint256 timestamp;
-    }
+    bool public initialized;
 
-    mapping(uint256 => StakeInfo) public stakedNFTs;
-    mapping(address => uint256[]) public stakerToTokenIds;
+    event SwapExecuted(address indexed user, uint256 tokenIdIn, uint256 tokenIdOut, uint256 feePaid);
+    event Staked(address indexed user, uint256 tokenId, uint256 timestamp);
 
-    uint256[] public poolNFTs;
-    mapping(uint256 => bool) public isInPool;
-
-    mapping(address => uint256) public rewards;
-    uint256 public totalStaked;
-
-    /// @custom:oz-upgrades-unsafe-allow constructor
-    constructor() {
-        _disableInitializers();
-    }
+    error AlreadyInitialized();
+    error NotInitialized();
+    error InvalidStakeDuration();
+    error InsufficientFee();
 
     function initialize(
-        address _nft,
+        address _nftCollection,
         address _feeToken,
-        address _receipt,
+        address _receiptContract,
         address _stonerPool,
         uint256 _swapFee,
         uint256 _minStakeDuration,
-        uint256 _stonerFeeShare
-    ) public initializer {
-        __Ownable_init();
-        __ERC721Holder_init();
-        __UUPSUpgradeable_init();
-
-        nftCollection = IERC721Upgradeable(_nft);
-        feeToken = IERC20Upgradeable(_feeToken);
-        receipt = IStakeReceipt(_receipt);
-        stonerPool = IStonerFeePool(_stonerPool);
-
+        uint256 _stonerShare
+    ) external {
+        if (initialized) revert AlreadyInitialized();
+        nftCollection = _nftCollection;
+        feeToken = _feeToken;
+        receiptContract = _receiptContract;
+        stonerPool = _stonerPool;
         swapFee = _swapFee;
         minStakeDuration = _minStakeDuration;
-        stonerFeeShare = _stonerFeeShare;
+        stonerShare = _stonerShare;
+        initialized = true;
     }
 
-    function stake(uint256 tokenId) external {
-        nftCollection.safeTransferFrom(msg.sender, address(this), tokenId);
-        stakedNFTs[tokenId] = StakeInfo(msg.sender, block.timestamp);
-        stakerToTokenIds[msg.sender].push(tokenId);
-        receipt.mint(msg.sender, tokenId);
-        poolNFTs.push(tokenId);
-        isInPool[tokenId] = true;
-        totalStaked++;
-    }
-
-    function unstake(uint256 tokenId) external {
-        StakeInfo memory info = stakedNFTs[tokenId];
-        require(info.staker == msg.sender, "Not staker");
-        require(block.timestamp >= info.timestamp + minStakeDuration, "Locked");
-
-        delete stakedNFTs[tokenId];
-        _removeFromArray(stakerToTokenIds[msg.sender], tokenId);
-        if (isInPool[tokenId]) {
-            _removeFromArray(poolNFTs, tokenId);
-            isInPool[tokenId] = false;
-        }
-        totalStaked--;
-        receipt.burn(tokenId);
-        nftCollection.safeTransferFrom(address(this), msg.sender, tokenId);
-    }
-
-    function swap(uint256 yourTokenId) external {
-        require(poolNFTs.length > 0, "Empty pool");
-        require(feeToken.transferFrom(msg.sender, address(this), swapFee), "Fee failed");
-
-        nftCollection.safeTransferFrom(msg.sender, address(this), yourTokenId);
-        stakedNFTs[yourTokenId] = StakeInfo(msg.sender, block.timestamp);
-        stakerToTokenIds[msg.sender].push(yourTokenId);
-        poolNFTs.push(yourTokenId);
-        isInPool[yourTokenId] = true;
-        receipt.mint(msg.sender, yourTokenId);
-        totalStaked++;
-
-        uint256 index = uint256(keccak256(abi.encodePacked(block.timestamp, block.prevrandao, msg.sender, poolNFTs.length))) % poolNFTs.length;
-        uint256 tokenIdOut = poolNFTs[index];
-
-        _removeFromArray(poolNFTs, tokenIdOut);
-        isInPool[tokenIdOut] = false;
-
-        nftCollection.safeTransferFrom(address(this), msg.sender, tokenIdOut);
-
-        uint256 stonerShare = (swapFee * stonerFeeShare) / 100;
-        uint256 stakerShare = swapFee - stonerShare;
-
-        if (stonerShare > 0) {
-            feeToken.approve(address(stonerPool), stonerShare);
-            stonerPool.notifyReward(stonerShare);
+    function swapNFT(uint256 tokenIdIn, uint256 tokenIdOut) external {
+        if (!initialized) revert NotInitialized();
+        
+        // Transfer fee from user to contract
+        uint256 totalFee = swapFee;
+        if (totalFee > 0) {
+            bool success = IERC20(feeToken).transferFrom(msg.sender, address(this), totalFee);
+            if (!success) revert InsufficientFee();
+            
+            // Distribute fee to stoner pool
+            uint256 stonerAmount = (totalFee * stonerShare) / 100;
+            IERC20(feeToken).transfer(stonerPool, stonerAmount);
         }
 
-        uint256 perNFT = stakerShare / totalStaked;
-        for (uint256 i = 0; i < poolNFTs.length; i++) {
-            address staker = stakedNFTs[poolNFTs[i]].staker;
-            rewards[staker] += perNFT;
-        }
+        // Execute NFT swap
+        IERC721(nftCollection).transferFrom(msg.sender, address(this), tokenIdIn);
+        IERC721(nftCollection).transferFrom(address(this), msg.sender, tokenIdOut);
+
+        emit SwapExecuted(msg.sender, tokenIdIn, tokenIdOut, totalFee);
     }
 
-    function claim() external {
-        uint256 amt = rewards[msg.sender];
-        require(amt > 0, "No rewards");
-        rewards[msg.sender] = 0;
-        require(feeToken.transfer(msg.sender, amt), "Transfer failed");
+    function stakeNFT(uint256 tokenId) external {
+        if (!initialized) revert NotInitialized();
+        
+        // Transfer NFT to contract
+        IERC721(nftCollection).transferFrom(msg.sender, address(this), tokenId);
+        
+        // Record staking (in a real implementation, this would involve more state tracking)
+        emit Staked(msg.sender, tokenId, block.timestamp);
     }
 
-    function getPoolLength() external view returns (uint256) {
-        return poolNFTs.length;
+    function setSwapFee(uint256 newFee) external onlyOwner {
+        if (!initialized) revert NotInitialized();
+        swapFee = newFee;
     }
 
-    function setSwapFee(uint256 fee) external onlyOwner {
-        swapFee = fee;
+    function setMinStakeDuration(uint256 newDuration) external onlyOwner {
+        if (!initialized) revert NotInitialized();
+        if (newDuration == 0) revert InvalidStakeDuration();
+        minStakeDuration = newDuration;
     }
 
-    function setMinStakeDuration(uint256 duration) external onlyOwner {
-        minStakeDuration = duration;
+    function setStonerShare(uint256 newShare) external onlyOwner {
+        if (!initialized) revert NotInitialized();
+        if (newShare > 100) revert InvalidStakeDuration();
+        stonerShare = newShare;
     }
-
-    function setStonerFeeShare(uint256 share) external onlyOwner {
-        require(share <= 100, "Too high");
-        stonerFeeShare = share;
-    }
-
-    function _removeFromArray(uint256[] storage array, uint256 tokenId) internal {
-        for (uint256 i = 0; i < array.length; i++) {
-            if (array[i] == tokenId) {
-                array[i] = array[array.length - 1];
-                array.pop();
-                break;
-            }
-        }
-    }
-
-    function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}
 }

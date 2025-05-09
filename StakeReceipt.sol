@@ -1,22 +1,25 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.19;
 
-import "https://github.com/OpenZeppelin/openzeppelin-contracts/blob/v4.8.3/contracts/token/ERC721/extensions/ERC721Enumerable.sol";
-import "https://github.com/OpenZeppelin/openzeppelin-contracts/blob/v4.8.3/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/token/ERC721/extensions/ERC721Enumerable.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
 
 contract StakeReceipt is ERC721Enumerable, Ownable {
     address public pool;
+    string private baseURI;
 
-    constructor(
-        string memory name_,
-        string memory symbol_,
-        address pool_
-    ) ERC721(name_, symbol_) {
+    event BaseURIUpdated(string newBaseURI);
+
+    error OnlyPool();
+    error NonTransferable();
+    error InvalidURI();
+
+    constructor(string memory name_, string memory symbol_, address pool_) ERC721(name_, symbol_) {
         pool = pool_;
     }
 
     modifier onlyPool() {
-        require(msg.sender == pool, "Only the associated pool can mint or burn");
+        if (msg.sender != pool) revert OnlyPool();
         _;
     }
 
@@ -26,5 +29,20 @@ contract StakeReceipt is ERC721Enumerable, Ownable {
 
     function burn(uint256 tokenId) external onlyPool {
         _burn(tokenId);
+    }
+
+    function _baseURI() internal view override returns (string memory) {
+        return baseURI;
+    }
+
+    function setBaseURI(string memory uri) external onlyOwner {
+        if (bytes(uri).length == 0) revert InvalidURI();
+        baseURI = uri;
+        emit BaseURIUpdated(uri);
+    }
+
+    function _beforeTokenTransfer(address from, address to, uint256 tokenId) internal override {
+        if (from != address(0) && to != address(0)) revert NonTransferable();
+        super._beforeTokenTransfer(from, to, tokenId);
     }
 }
