@@ -1,3 +1,4 @@
+
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.19;
 
@@ -14,7 +15,7 @@ contract StonerFeePool is Initializable, OwnableUpgradeable, UUPSUpgradeable {
     mapping(address => uint256[]) public stakedTokens;
     mapping(address => mapping(address => uint256)) public rewardsPerToken; // user => token => reward
 
-    mapping(address => bool) public allowedRewardTokens; // track tokens explicitly supported
+    mapping(address => bool) public allowedRewardTokens;
     address[] public rewardTokens;
 
     uint256 public totalStaked;
@@ -88,6 +89,17 @@ contract StonerFeePool is Initializable, OwnableUpgradeable, UUPSUpgradeable {
                 rewardsPerToken[msg.sender][token] = 0;
                 IERC20Upgradeable(token).transfer(msg.sender, amt);
             }
+        }
+    }
+
+    function getClaimableRewards(address user) external view returns (address[] memory tokens, uint256[] memory amounts) {
+        uint256 len = rewardTokens.length;
+        tokens = new address[](len);
+        amounts = new uint256[](len);
+        for (uint i = 0; i < len; i++) {
+            address token = rewardTokens[i];
+            tokens[i] = token;
+            amounts[i] = rewardsPerToken[user][token];
         }
     }
 
