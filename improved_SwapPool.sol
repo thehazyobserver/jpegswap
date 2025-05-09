@@ -33,13 +33,15 @@ contract SwapPool is Initializable, OwnableUpgradeable, ERC721HolderUpgradeable,
     }
 
     mapping(uint256 => StakeInfo) public stakedNFTs;
+    mapping(address => uint256[]) public stakerToTokenIds;
+
     uint256[] public poolNFTs;
+    mapping(uint256 => bool) public isInPool;
 
     mapping(address => uint256) public rewards;
-    mapping(address => uint256[]) public userStakedNFTs;
-
     uint256 public totalStaked;
 
+    /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
         _disableInitializers();
     }
@@ -70,9 +72,10 @@ contract SwapPool is Initializable, OwnableUpgradeable, ERC721HolderUpgradeable,
     function stake(uint256 tokenId) external {
         nftCollection.safeTransferFrom(msg.sender, address(this), tokenId);
         stakedNFTs[tokenId] = StakeInfo(msg.sender, block.timestamp);
-        userStakedNFTs[msg.sender].push(tokenId);
+        stakerToTokenIds[msg.sender].push(tokenId);
         receipt.mint(msg.sender, tokenId);
         poolNFTs.push(tokenId);
+        isInPool[tokenId] = true;
         totalStaked++;
     }
 
@@ -81,25 +84,12 @@ contract SwapPool is Initializable, OwnableUpgradeable, ERC721HolderUpgradeable,
         require(info.staker == msg.sender, "Not staker");
         require(block.timestamp >= info.timestamp + minStakeDuration, "Locked");
 
-        for (uint i = 0; i < poolNFTs.length; i++) {
-            if (poolNFTs[i] == tokenId) {
-                poolNFTs[i] = poolNFTs[poolNFTs.length - 1];
-                poolNFTs.pop();
-                break;
-            }
-        }
-
-        // Remove from userStakedNFTs
-        uint256[] storage userTokens = userStakedNFTs[msg.sender];
-        for (uint i = 0; i < userTokens.length; i++) {
-            if (userTokens[i] == tokenId) {
-                userTokens[i] = userTokens[userTokens.length - 1];
-                userTokens.pop();
-                break;
-            }
-        }
-
         delete stakedNFTs[tokenId];
+        _removeFromArray(stakerToTokenIds[msg.sender], tokenId);
+        if (isInPool[tokenId]) {
+            _removeFromArray(poolNFTs, tokenId);
+            isInPool[tokenId] = false;
+        }
         totalStaked--;
         receipt.burn(tokenId);
         nftCollection.safeTransferFrom(address(this), msg.sender, tokenId);
@@ -111,16 +101,17 @@ contract SwapPool is Initializable, OwnableUpgradeable, ERC721HolderUpgradeable,
 
         nftCollection.safeTransferFrom(msg.sender, address(this), yourTokenId);
         stakedNFTs[yourTokenId] = StakeInfo(msg.sender, block.timestamp);
-        userStakedNFTs[msg.sender].push(yourTokenId);
+        stakerToTokenIds[msg.sender].push(yourTokenId);
         poolNFTs.push(yourTokenId);
+        isInPool[yourTokenId] = true;
         receipt.mint(msg.sender, yourTokenId);
         totalStaked++;
 
-        uint256 index = uint256(keccak256(abi.encodePacked(msg.sender, block.timestamp, block.prevrandao))) % poolNFTs.length;
+        uint256 index = uint256(keccak256(abi.encodePacked(block.timestamp, block.prevrandao, msg.sender, poolNFTs.length))) % poolNFTs.length;
         uint256 tokenIdOut = poolNFTs[index];
 
-        poolNFTs[index] = poolNFTs[poolNFTs.length - 1];
-        poolNFTs.pop();
+        _removeFromArray(poolNFTs, tokenIdOut);
+        isInPool[tokenIdOut] = false;
 
         nftCollection.safeTransferFrom(address(this), msg.sender, tokenIdOut);
 
@@ -133,16 +124,17 @@ contract SwapPool is Initializable, OwnableUpgradeable, ERC721HolderUpgradeable,
         }
 
         uint256 perNFT = stakerShare / totalStaked;
-        for (uint i = 0; i < poolNFTs.length; i++) {
-            rewards[stakedNFTs[poolNFTs[i]].staker] += perNFT;
+        for (uint256 i = 0; i < poolNFTs.length; i++) {
+            address staker = stakedNFTs[poolNFTs[i]].staker;
+            rewards[staker] += perNFT;
         }
     }
 
-    function claimAll() external {
-        uint256 totalReward = rewards[msg.sender];
-        require(totalReward > 0, "No rewards");
+    function claim() external {
+        uint256 amt = rewards[msg.sender];
+        require(amt > 0, "No rewards");
         rewards[msg.sender] = 0;
-        require(feeToken.transfer(msg.sender, totalReward), "Transfer failed");
+        require(feeToken.transfer(msg.sender, amt), "Transfer failed");
     }
 
     function getPoolLength() external view returns (uint256) {
@@ -160,6 +152,16 @@ contract SwapPool is Initializable, OwnableUpgradeable, ERC721HolderUpgradeable,
     function setStonerFeeShare(uint256 share) external onlyOwner {
         require(share <= 100, "Too high");
         stonerFeeShare = share;
+    }
+
+    function _removeFromArray(uint256[] storage array, uint256 tokenId) internal {
+        for (uint256 i = 0; i < array.length; i++) {
+            if (array[i] == tokenId) {
+                array[i] = array[array.length - 1];
+                array.pop();
+                break;
+            }
+        }
     }
 
     function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}
