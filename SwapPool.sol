@@ -1,5 +1,5 @@
 
-// File: https://github.com/OpenZeppelin/openzeppelin-contracts/blob/v4.8.3/contracts/utils/Context.sol
+// File: @openzeppelin/contracts@4.8.3/utils/Context.sol
 
 
 // OpenZeppelin Contracts v4.4.1 (utils/Context.sol)
@@ -26,10 +26,10 @@ abstract contract Context {
     }
 }
 
-// File: https://github.com/OpenZeppelin/openzeppelin-contracts/blob/v4.8.3/contracts/access/Ownable.sol
+// File: @openzeppelin/contracts@4.8.3/access/Ownable.sol
 
 
-// OpenZeppelin Contracts (last updated v4.9.0) (access/Ownable.sol)
+// OpenZeppelin Contracts (last updated v4.7.0) (access/Ownable.sol)
 
 pragma solidity ^0.8.0;
 
@@ -82,10 +82,10 @@ abstract contract Ownable is Context {
 
     /**
      * @dev Leaves the contract without owner. It will not be possible to call
-     * `onlyOwner` functions. Can only be called by the current owner.
+     * `onlyOwner` functions anymore. Can only be called by the current owner.
      *
      * NOTE: Renouncing ownership will leave the contract without an owner,
-     * thereby disabling any functionality that is only available to the owner.
+     * thereby removing any functionality that is only available to the owner.
      */
     function renounceOwnership() public virtual onlyOwner {
         _transferOwnership(address(0));
@@ -111,7 +111,7 @@ abstract contract Ownable is Context {
     }
 }
 
-// File: https://github.com/OpenZeppelin/openzeppelin-contracts/blob/v4.8.3/contracts/security/ReentrancyGuard.sol
+// File: @openzeppelin/contracts@4.8.3/security/ReentrancyGuard.sol
 
 
 // OpenZeppelin Contracts (last updated v4.8.0) (security/ReentrancyGuard.sol)
@@ -183,169 +183,7 @@ abstract contract ReentrancyGuard {
     }
 }
 
-// File: https://github.com/OpenZeppelin/openzeppelin-contracts/blob/v4.8.3/contracts/utils/introspection/IERC165.sol
-
-
-// OpenZeppelin Contracts v4.4.1 (utils/introspection/IERC165.sol)
-
-pragma solidity ^0.8.0;
-
-/**
- * @dev Interface of the ERC165 standard, as defined in the
- * https://eips.ethereum.org/EIPS/eip-165[EIP].
- *
- * Implementers can declare support of contract interfaces, which can then be
- * queried by others ({ERC165Checker}).
- *
- * For an implementation, see {ERC165}.
- */
-interface IERC165 {
-    /**
-     * @dev Returns true if this contract implements the interface defined by
-     * `interfaceId`. See the corresponding
-     * https://eips.ethereum.org/EIPS/eip-165#how-interfaces-are-identified[EIP section]
-     * to learn more about how these ids are created.
-     *
-     * This function call must use less than 30 000 gas.
-     */
-    function supportsInterface(bytes4 interfaceId) external view returns (bool);
-}
-
-// File: https://github.com/OpenZeppelin/openzeppelin-contracts/blob/v4.8.3/contracts/token/ERC721/IERC721.sol
-
-
-// OpenZeppelin Contracts (last updated v4.9.0) (token/ERC721/IERC721.sol)
-
-pragma solidity ^0.8.0;
-
-
-/**
- * @dev Required interface of an ERC721 compliant contract.
- */
-interface IERC721 is IERC165 {
-    /**
-     * @dev Emitted when `tokenId` token is transferred from `from` to `to`.
-     */
-    event Transfer(address indexed from, address indexed to, uint256 indexed tokenId);
-
-    /**
-     * @dev Emitted when `owner` enables `approved` to manage the `tokenId` token.
-     */
-    event Approval(address indexed owner, address indexed approved, uint256 indexed tokenId);
-
-    /**
-     * @dev Emitted when `owner` enables or disables (`approved`) `operator` to manage all of its assets.
-     */
-    event ApprovalForAll(address indexed owner, address indexed operator, bool approved);
-
-    /**
-     * @dev Returns the number of tokens in ``owner``'s account.
-     */
-    function balanceOf(address owner) external view returns (uint256 balance);
-
-    /**
-     * @dev Returns the owner of the `tokenId` token.
-     *
-     * Requirements:
-     *
-     * - `tokenId` must exist.
-     */
-    function ownerOf(uint256 tokenId) external view returns (address owner);
-
-    /**
-     * @dev Safely transfers `tokenId` token from `from` to `to`.
-     *
-     * Requirements:
-     *
-     * - `from` cannot be the zero address.
-     * - `to` cannot be the zero address.
-     * - `tokenId` token must exist and be owned by `from`.
-     * - If the caller is not `from`, it must be approved to move this token by either {approve} or {setApprovalForAll}.
-     * - If `to` refers to a smart contract, it must implement {IERC721Receiver-onERC721Received}, which is called upon a safe transfer.
-     *
-     * Emits a {Transfer} event.
-     */
-    function safeTransferFrom(address from, address to, uint256 tokenId, bytes calldata data) external;
-
-    /**
-     * @dev Safely transfers `tokenId` token from `from` to `to`, checking first that contract recipients
-     * are aware of the ERC721 protocol to prevent tokens from being forever locked.
-     *
-     * Requirements:
-     *
-     * - `from` cannot be the zero address.
-     * - `to` cannot be the zero address.
-     * - `tokenId` token must exist and be owned by `from`.
-     * - If the caller is not `from`, it must have been allowed to move this token by either {approve} or {setApprovalForAll}.
-     * - If `to` refers to a smart contract, it must implement {IERC721Receiver-onERC721Received}, which is called upon a safe transfer.
-     *
-     * Emits a {Transfer} event.
-     */
-    function safeTransferFrom(address from, address to, uint256 tokenId) external;
-
-    /**
-     * @dev Transfers `tokenId` token from `from` to `to`.
-     *
-     * WARNING: Note that the caller is responsible to confirm that the recipient is capable of receiving ERC721
-     * or else they may be permanently lost. Usage of {safeTransferFrom} prevents loss, though the caller must
-     * understand this adds an external call which potentially creates a reentrancy vulnerability.
-     *
-     * Requirements:
-     *
-     * - `from` cannot be the zero address.
-     * - `to` cannot be the zero address.
-     * - `tokenId` token must be owned by `from`.
-     * - If the caller is not `from`, it must be approved to move this token by either {approve} or {setApprovalForAll}.
-     *
-     * Emits a {Transfer} event.
-     */
-    function transferFrom(address from, address to, uint256 tokenId) external;
-
-    /**
-     * @dev Gives permission to `to` to transfer `tokenId` token to another account.
-     * The approval is cleared when the token is transferred.
-     *
-     * Only a single account can be approved at a time, so approving the zero address clears previous approvals.
-     *
-     * Requirements:
-     *
-     * - The caller must own the token or be an approved operator.
-     * - `tokenId` must exist.
-     *
-     * Emits an {Approval} event.
-     */
-    function approve(address to, uint256 tokenId) external;
-
-    /**
-     * @dev Approve or remove `operator` as an operator for the caller.
-     * Operators can call {transferFrom} or {safeTransferFrom} for any token owned by the caller.
-     *
-     * Requirements:
-     *
-     * - The `operator` cannot be the caller.
-     *
-     * Emits an {ApprovalForAll} event.
-     */
-    function setApprovalForAll(address operator, bool approved) external;
-
-    /**
-     * @dev Returns the account approved for `tokenId` token.
-     *
-     * Requirements:
-     *
-     * - `tokenId` must exist.
-     */
-    function getApproved(uint256 tokenId) external view returns (address operator);
-
-    /**
-     * @dev Returns if the `operator` is allowed to manage all of the assets of `owner`.
-     *
-     * See {setApprovalForAll}
-     */
-    function isApprovedForAll(address owner, address operator) external view returns (bool);
-}
-
-// File: https://github.com/OpenZeppelin/openzeppelin-contracts/blob/v4.8.3/contracts/token/ERC20/IERC20.sol
+// File: @openzeppelin/contracts@4.8.3/token/ERC20/IERC20.sol
 
 
 // OpenZeppelin Contracts (last updated v4.6.0) (token/ERC20/IERC20.sol)
@@ -430,7 +268,7 @@ interface IERC20 {
     ) external returns (bool);
 }
 
-// File: https://github.com/OpenZeppelin/openzeppelin-contracts/blob/v4.8.3/contracts/token/ERC20/extensions/draft-IERC20Permit.sol
+// File: @openzeppelin/contracts@4.8.3/token/ERC20/extensions/draft-IERC20Permit.sol
 
 
 // OpenZeppelin Contracts v4.4.1 (token/ERC20/extensions/draft-IERC20Permit.sol)
@@ -493,10 +331,10 @@ interface IERC20Permit {
     function DOMAIN_SEPARATOR() external view returns (bytes32);
 }
 
-// File: https://github.com/OpenZeppelin/openzeppelin-contracts/blob/v4.8.3/contracts/utils/Address.sol
+// File: @openzeppelin/contracts@4.8.3/utils/Address.sol
 
 
-// OpenZeppelin Contracts (last updated v4.9.0) (utils/Address.sol)
+// OpenZeppelin Contracts (last updated v4.8.0) (utils/Address.sol)
 
 pragma solidity ^0.8.1;
 
@@ -519,10 +357,6 @@ library Address {
      *  - a contract in construction
      *  - an address where a contract will be created
      *  - an address where a contract lived, but was destroyed
-     *
-     * Furthermore, `isContract` will also return true if the target contract within
-     * the same transaction is already scheduled for destruction by `SELFDESTRUCT`,
-     * which only has an effect at the end of a transaction.
      * ====
      *
      * [IMPORTANT]
@@ -551,12 +385,12 @@ library Address {
      * imposed by `transfer`, making them unable to receive funds via
      * `transfer`. {sendValue} removes this limitation.
      *
-     * https://consensys.net/diligence/blog/2019/09/stop-using-soliditys-transfer-now/[Learn more].
+     * https://diligence.consensys.net/posts/2019/09/stop-using-soliditys-transfer-now/[Learn more].
      *
      * IMPORTANT: because control is transferred to `recipient`, care must be
      * taken to not create reentrancy vulnerabilities. Consider using
      * {ReentrancyGuard} or the
-     * https://solidity.readthedocs.io/en/v0.8.0/security-considerations.html#use-the-checks-effects-interactions-pattern[checks-effects-interactions pattern].
+     * https://solidity.readthedocs.io/en/v0.5.11/security-considerations.html#use-the-checks-effects-interactions-pattern[checks-effects-interactions pattern].
      */
     function sendValue(address payable recipient, uint256 amount) internal {
         require(address(this).balance >= amount, "Address: insufficient balance");
@@ -612,7 +446,11 @@ library Address {
      *
      * _Available since v3.1._
      */
-    function functionCallWithValue(address target, bytes memory data, uint256 value) internal returns (bytes memory) {
+    function functionCallWithValue(
+        address target,
+        bytes memory data,
+        uint256 value
+    ) internal returns (bytes memory) {
         return functionCallWithValue(target, data, value, "Address: low-level call with value failed");
     }
 
@@ -740,7 +578,7 @@ library Address {
     }
 }
 
-// File: https://github.com/OpenZeppelin/openzeppelin-contracts/blob/v4.8.3/contracts/token/ERC20/utils/SafeERC20.sol
+// File: @openzeppelin/contracts@4.8.3/token/ERC20/utils/SafeERC20.sol
 
 
 // OpenZeppelin Contracts (last updated v4.8.0) (token/ERC20/utils/SafeERC20.sol)
@@ -858,10 +696,186 @@ library SafeERC20 {
     }
 }
 
+// File: @openzeppelin/contracts@4.8.3/utils/introspection/IERC165.sol
+
+
+// OpenZeppelin Contracts v4.4.1 (utils/introspection/IERC165.sol)
+
+pragma solidity ^0.8.0;
+
+/**
+ * @dev Interface of the ERC165 standard, as defined in the
+ * https://eips.ethereum.org/EIPS/eip-165[EIP].
+ *
+ * Implementers can declare support of contract interfaces, which can then be
+ * queried by others ({ERC165Checker}).
+ *
+ * For an implementation, see {ERC165}.
+ */
+interface IERC165 {
+    /**
+     * @dev Returns true if this contract implements the interface defined by
+     * `interfaceId`. See the corresponding
+     * https://eips.ethereum.org/EIPS/eip-165#how-interfaces-are-identified[EIP section]
+     * to learn more about how these ids are created.
+     *
+     * This function call must use less than 30 000 gas.
+     */
+    function supportsInterface(bytes4 interfaceId) external view returns (bool);
+}
+
+// File: @openzeppelin/contracts@4.8.3/token/ERC721/IERC721.sol
+
+
+// OpenZeppelin Contracts (last updated v4.8.0) (token/ERC721/IERC721.sol)
+
+pragma solidity ^0.8.0;
+
+
+/**
+ * @dev Required interface of an ERC721 compliant contract.
+ */
+interface IERC721 is IERC165 {
+    /**
+     * @dev Emitted when `tokenId` token is transferred from `from` to `to`.
+     */
+    event Transfer(address indexed from, address indexed to, uint256 indexed tokenId);
+
+    /**
+     * @dev Emitted when `owner` enables `approved` to manage the `tokenId` token.
+     */
+    event Approval(address indexed owner, address indexed approved, uint256 indexed tokenId);
+
+    /**
+     * @dev Emitted when `owner` enables or disables (`approved`) `operator` to manage all of its assets.
+     */
+    event ApprovalForAll(address indexed owner, address indexed operator, bool approved);
+
+    /**
+     * @dev Returns the number of tokens in ``owner``'s account.
+     */
+    function balanceOf(address owner) external view returns (uint256 balance);
+
+    /**
+     * @dev Returns the owner of the `tokenId` token.
+     *
+     * Requirements:
+     *
+     * - `tokenId` must exist.
+     */
+    function ownerOf(uint256 tokenId) external view returns (address owner);
+
+    /**
+     * @dev Safely transfers `tokenId` token from `from` to `to`.
+     *
+     * Requirements:
+     *
+     * - `from` cannot be the zero address.
+     * - `to` cannot be the zero address.
+     * - `tokenId` token must exist and be owned by `from`.
+     * - If the caller is not `from`, it must be approved to move this token by either {approve} or {setApprovalForAll}.
+     * - If `to` refers to a smart contract, it must implement {IERC721Receiver-onERC721Received}, which is called upon a safe transfer.
+     *
+     * Emits a {Transfer} event.
+     */
+    function safeTransferFrom(
+        address from,
+        address to,
+        uint256 tokenId,
+        bytes calldata data
+    ) external;
+
+    /**
+     * @dev Safely transfers `tokenId` token from `from` to `to`, checking first that contract recipients
+     * are aware of the ERC721 protocol to prevent tokens from being forever locked.
+     *
+     * Requirements:
+     *
+     * - `from` cannot be the zero address.
+     * - `to` cannot be the zero address.
+     * - `tokenId` token must exist and be owned by `from`.
+     * - If the caller is not `from`, it must have been allowed to move this token by either {approve} or {setApprovalForAll}.
+     * - If `to` refers to a smart contract, it must implement {IERC721Receiver-onERC721Received}, which is called upon a safe transfer.
+     *
+     * Emits a {Transfer} event.
+     */
+    function safeTransferFrom(
+        address from,
+        address to,
+        uint256 tokenId
+    ) external;
+
+    /**
+     * @dev Transfers `tokenId` token from `from` to `to`.
+     *
+     * WARNING: Note that the caller is responsible to confirm that the recipient is capable of receiving ERC721
+     * or else they may be permanently lost. Usage of {safeTransferFrom} prevents loss, though the caller must
+     * understand this adds an external call which potentially creates a reentrancy vulnerability.
+     *
+     * Requirements:
+     *
+     * - `from` cannot be the zero address.
+     * - `to` cannot be the zero address.
+     * - `tokenId` token must be owned by `from`.
+     * - If the caller is not `from`, it must be approved to move this token by either {approve} or {setApprovalForAll}.
+     *
+     * Emits a {Transfer} event.
+     */
+    function transferFrom(
+        address from,
+        address to,
+        uint256 tokenId
+    ) external;
+
+    /**
+     * @dev Gives permission to `to` to transfer `tokenId` token to another account.
+     * The approval is cleared when the token is transferred.
+     *
+     * Only a single account can be approved at a time, so approving the zero address clears previous approvals.
+     *
+     * Requirements:
+     *
+     * - The caller must own the token or be an approved operator.
+     * - `tokenId` must exist.
+     *
+     * Emits an {Approval} event.
+     */
+    function approve(address to, uint256 tokenId) external;
+
+    /**
+     * @dev Approve or remove `operator` as an operator for the caller.
+     * Operators can call {transferFrom} or {safeTransferFrom} for any token owned by the caller.
+     *
+     * Requirements:
+     *
+     * - The `operator` cannot be the caller.
+     *
+     * Emits an {ApprovalForAll} event.
+     */
+    function setApprovalForAll(address operator, bool _approved) external;
+
+    /**
+     * @dev Returns the account approved for `tokenId` token.
+     *
+     * Requirements:
+     *
+     * - `tokenId` must exist.
+     */
+    function getApproved(uint256 tokenId) external view returns (address operator);
+
+    /**
+     * @dev Returns if the `operator` is allowed to manage all of the assets of `owner`.
+     *
+     * See {setApprovalForAll}
+     */
+    function isApprovedForAll(address owner, address operator) external view returns (bool);
+}
+
 // File: SwapPool.sol
 
 
 pragma solidity ^0.8.19;
+
 
 
 
@@ -874,12 +888,12 @@ contract SwapPool is Ownable, ReentrancyGuard {
     address public feeToken;
     address public receiptContract;
     address public stonerPool;
+
     uint256 public swapFee;
     uint256 public minStakeDuration;
     uint256 public stonerShare;
 
     bool public initialized;
-
     mapping(uint256 => uint256) public stakeTimestamps;
 
     event SwapExecuted(address indexed user, uint256 tokenIdIn, uint256 tokenIdOut, uint256 feePaid);
@@ -891,8 +905,13 @@ contract SwapPool is Ownable, ReentrancyGuard {
     error AlreadyInitialized();
     error NotInitialized();
     error InvalidStakeDuration();
-    error InsufficientFee();
+    error InvalidStonerShare();
     error TokenUnavailable();
+
+    modifier onlyInitialized() {
+        if (!initialized) revert NotInitialized();
+        _;
+    }
 
     function initialize(
         address _nftCollection,
@@ -904,6 +923,14 @@ contract SwapPool is Ownable, ReentrancyGuard {
         uint256 _stonerShare
     ) external {
         if (initialized) revert AlreadyInitialized();
+        if (
+            _nftCollection == address(0) ||
+            _feeToken == address(0) ||
+            _receiptContract == address(0) ||
+            _stonerPool == address(0)
+        ) revert("Zero address not allowed");
+        if (_stonerShare > 100) revert InvalidStonerShare();
+
         nftCollection = _nftCollection;
         feeToken = _feeToken;
         receiptContract = _receiptContract;
@@ -916,8 +943,7 @@ contract SwapPool is Ownable, ReentrancyGuard {
         _transferOwnership(msg.sender);
     }
 
-    function swapNFT(uint256 tokenIdIn, uint256 tokenIdOut) external nonReentrant {
-        if (!initialized) revert NotInitialized();
+    function swapNFT(uint256 tokenIdIn, uint256 tokenIdOut) external nonReentrant onlyInitialized {
         if (IERC721(nftCollection).ownerOf(tokenIdOut) != address(this)) revert TokenUnavailable();
 
         uint256 totalFee = swapFee;
@@ -935,30 +961,26 @@ contract SwapPool is Ownable, ReentrancyGuard {
         emit SwapExecuted(msg.sender, tokenIdIn, tokenIdOut, totalFee);
     }
 
-    function stakeNFT(uint256 tokenId) external {
-        if (!initialized) revert NotInitialized();
+    function stakeNFT(uint256 tokenId) external onlyInitialized {
         IERC721(nftCollection).transferFrom(msg.sender, address(this), tokenId);
         stakeTimestamps[tokenId] = block.timestamp;
 
         emit Staked(msg.sender, tokenId, block.timestamp);
     }
 
-    function setSwapFee(uint256 newFee) external onlyOwner {
-        if (!initialized) revert NotInitialized();
+    function setSwapFee(uint256 newFee) external onlyOwner onlyInitialized {
         swapFee = newFee;
         emit SwapFeeUpdated(newFee);
     }
 
-    function setMinStakeDuration(uint256 newDuration) external onlyOwner {
-        if (!initialized) revert NotInitialized();
+    function setMinStakeDuration(uint256 newDuration) external onlyOwner onlyInitialized {
         if (newDuration == 0) revert InvalidStakeDuration();
         minStakeDuration = newDuration;
         emit MinStakeDurationUpdated(newDuration);
     }
 
-    function setStonerShare(uint256 newShare) external onlyOwner {
-        if (!initialized) revert NotInitialized();
-        if (newShare > 100) revert InvalidStakeDuration();
+    function setStonerShare(uint256 newShare) external onlyOwner onlyInitialized {
+        if (newShare > 100) revert InvalidStonerShare();
         stonerShare = newShare;
         emit StonerShareUpdated(newShare);
     }
