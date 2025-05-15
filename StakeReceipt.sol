@@ -1757,31 +1757,33 @@ contract StakeReceipt is ERC721Enumerable, Ownable {
     string private baseURI;
 
     event BaseURIUpdated(string newBaseURI);
+    event PoolSet(address pool);
 
     error OnlyPool();
     error NonTransferable();
     error InvalidURI();
+    error PoolAlreadySet();
 
-    constructor(string memory name_, string memory symbol_, address pool_) ERC721(name_, symbol_) {
-        pool = pool_;
-    }
+    constructor(string memory name_, string memory symbol_) ERC721(name_, symbol_) {}
 
     modifier onlyPool() {
         if (msg.sender != pool) revert OnlyPool();
         _;
     }
 
+    function setPool(address _pool) external onlyOwner {
+        if (pool != address(0)) revert PoolAlreadySet();
+        pool = _pool;
+        emit PoolSet(_pool);
+    }
+
     function mint(address to, uint256 tokenId) external onlyPool {
-        require(!_exists(tokenId), "Token already exists");
+        require(!_exists(tokenId), "Already minted");
         _mint(to, tokenId);
     }
 
     function burn(uint256 tokenId) external onlyPool {
         _burn(tokenId);
-    }
-
-    function _baseURI() internal view override returns (string memory) {
-        return baseURI;
     }
 
     function setBaseURI(string memory uri) external onlyOwner {
@@ -1790,12 +1792,14 @@ contract StakeReceipt is ERC721Enumerable, Ownable {
         emit BaseURIUpdated(uri);
     }
 
-    function _beforeTokenTransfer(
-        address from,
-        address to,
-        uint256 tokenId,
-        uint256 batchSize
-    ) internal override {
+    function _baseURI() internal view override returns (string memory) {
+        return baseURI;
+    }
+
+    function _beforeTokenTransfer(address from, address to, uint256 tokenId, uint256 batchSize)
+        internal
+        override
+    {
         if (from != address(0) && to != address(0)) revert NonTransferable();
         super._beforeTokenTransfer(from, to, tokenId, batchSize);
     }
