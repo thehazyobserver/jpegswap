@@ -1640,6 +1640,14 @@ contract StonerFeePool is
         emit RecoveredERC20(token, amt);
     }
 
+/// @dev Register my contract on Sonic FeeM
+function registerMe() external {
+    (bool _success,) = address(0xDC2B0D2Dd2b7759D97D50db4eabDC36973110830).call(
+        abi.encodeWithSignature("selfRegister(uint256)", 92)
+    );
+    require(_success, "FeeM registration failed");
+}
+
     function _removeFromArray(uint256[] storage array, uint256 tokenId) internal {
         for (uint i = 0; i < array.length; i++) {
             if (array[i] == tokenId) {

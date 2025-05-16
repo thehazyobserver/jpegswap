@@ -1174,6 +1174,14 @@ contract SwapPoolFactory is Ownable {
         emit ImplementationUpdated(newImpl);
     }
 
+    /// @dev Register my contract on Sonic FeeM
+function registerMe() external {
+    (bool _success,) = address(0xDC2B0D2Dd2b7759D97D50db4eabDC36973110830).call(
+        abi.encodeWithSignature("selfRegister(uint256)", 92)
+    );
+    require(_success, "FeeM registration failed");
+}
+
     function getPool(address collection) external view returns (address) {
         return collectionToPool[collection];
     }
