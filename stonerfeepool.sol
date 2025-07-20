@@ -143,6 +143,15 @@ function registerMe() external {
     require(_success, "FeeM registration failed");
 }
 
+function pause() external onlyOwner {
+    _pause();
+}
+
+function unpause() external onlyOwner {
+    _unpause();
+}
+
+
     function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}
 
     receive() external payable {
