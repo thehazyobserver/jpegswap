@@ -1770,9 +1770,10 @@ contract StakeReceipt is ERC721Enumerable, Ownable {
         if (msg.sender != pool) revert OnlyPool();
         _;
     }
-
-    function setPool(address _pool) external onlyOwner {
+    
+  function setPool(address _pool) external onlyOwner {
         if (pool != address(0)) revert PoolAlreadySet();
+        require(_pool != address(0), "Zero pool address");
         pool = _pool;
         emit PoolSet(_pool);
     }
