@@ -83,7 +83,7 @@ contract StonerFeePool is
         emit Unstaked(msg.sender, tokenId);
     }
 
-    function notifyNativeReward() external payable {
+    function notifyNativeReward() public payable {
         if (msg.value == 0) revert ZeroETH();
         if (totalStaked == 0) revert NoStakers();
 
@@ -91,6 +91,7 @@ contract StonerFeePool is
         uint256 increment = totalValue / totalStaked;
         rewardPerTokenStored += increment;
         rewardRemainder = totalValue % totalStaked;
+
         emit RewardReceived(msg.sender, msg.value);
     }
 
@@ -113,11 +114,12 @@ contract StonerFeePool is
     }
 
     function _removeFromArray(uint256[] storage array, uint256 tokenId) internal {
-        for (uint i = 0; i < array.length; i++) {
+        uint256 len = array.length;
+        for (uint i = 0; i < len; ++i) {
             if (array[i] == tokenId) {
-                array[i] = array[array.length - 1];
+                array[i] = array[len - 1];
                 array.pop();
-                break;
+                return;
             }
         }
     }
@@ -135,22 +137,20 @@ contract StonerFeePool is
         emit EmergencyUnstake(tokenId, to);
     }
 
-    /// @dev Register my contract on Sonic FeeM
-function registerMe() external {
-    (bool _success,) = address(0xDC2B0D2Dd2b7759D97D50db4eabDC36973110830).call(
-        abi.encodeWithSignature("selfRegister(uint256)", 92)
-    );
-    require(_success, "FeeM registration failed");
-}
+    function registerMe() external {
+        (bool _success,) = address(0xDC2B0D2Dd2b7759D97D50db4eabDC36973110830).call(
+            abi.encodeWithSignature("selfRegister(uint256)", 92)
+        );
+        require(_success, "FeeM registration failed");
+    }
 
-function pause() external onlyOwner {
-    _pause();
-}
+    function pause() external onlyOwner {
+        _pause();
+    }
 
-function unpause() external onlyOwner {
-    _unpause();
-}
-
+    function unpause() external onlyOwner {
+        _unpause();
+    }
 
     function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}
 
