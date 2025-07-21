@@ -1077,27 +1077,24 @@ interface IERC20 {
 }
 
 // File: SwapPoolFactory.sol
-
-
+// SPDX-License-Identifier: MIT
 pragma solidity ^0.8.19;
 
+import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
+import "@openzeppelin/contracts/token/ERC721/IERC721.sol";
 
-
-
-
-interface ISwapPool {
+interface ISwapPoolNative {
     function initialize(
         address nftCollection,
-        address feeToken,
         address receiptContract,
         address stonerPool,
-        uint256 swapFee,
-        uint256 minStakeDuration,
+        uint256 swapFeeInWei,
         uint256 stonerShare
     ) external;
 }
 
-contract SwapPoolFactory is Ownable {
+contract SwapPoolFactoryNative is Ownable {
     address public implementation;
     mapping(address => address) public collectionToPool;
     address[] public allPools;
@@ -1108,10 +1105,8 @@ contract SwapPoolFactory is Ownable {
 
     error ZeroAddressNotAllowed();
     error PoolAlreadyExists();
-    error InvalidFeeRange();
     error InvalidShareRange();
     error InvalidERC721();
-    error InvalidERC20();
 
     constructor(address _implementation) {
         if (_implementation == address(0)) revert ZeroAddressNotAllowed();
@@ -1121,40 +1116,31 @@ contract SwapPoolFactory is Ownable {
 
     function createPool(
         address nftCollection,
-        address feeToken,
         address receiptContract,
         address stonerPool,
-        uint256 swapFee,
-        uint256 minStakeDuration,
+        uint256 swapFeeInWei,
         uint256 stonerShare
     ) external onlyOwner returns (address) {
         if (
             nftCollection == address(0) ||
-            feeToken == address(0) ||
             receiptContract == address(0) ||
             stonerPool == address(0)
         ) revert ZeroAddressNotAllowed();
 
         if (collectionToPool[nftCollection] != address(0)) revert PoolAlreadyExists();
-        if (swapFee < 1e15 || swapFee > 1e18) revert InvalidFeeRange();
         if (stonerShare > 100) revert InvalidShareRange();
 
-        // Validate NFT and ERC20 contract interfaces via low-level calls
+        // Validate NFT contract interface
         try IERC721(nftCollection).balanceOf(address(this)) {} catch {
             revert InvalidERC721();
         }
-        try IERC20(feeToken).totalSupply() {} catch {
-            revert InvalidERC20();
-        }
 
         bytes memory initData = abi.encodeWithSelector(
-            ISwapPool.initialize.selector,
+            ISwapPoolNative.initialize.selector,
             nftCollection,
-            feeToken,
             receiptContract,
             stonerPool,
-            swapFee,
-            minStakeDuration,
+            swapFeeInWei,
             stonerShare
         );
 
@@ -1174,13 +1160,12 @@ contract SwapPoolFactory is Ownable {
         emit ImplementationUpdated(newImpl);
     }
 
-    /// @dev Register my contract on Sonic FeeM
-function registerMe() external {
-    (bool _success,) = address(0xDC2B0D2Dd2b7759D97D50db4eabDC36973110830).call(
-        abi.encodeWithSignature("selfRegister(uint256)", 92)
-    );
-    require(_success, "FeeM registration failed");
-}
+    function registerMe() external {
+        (bool _success,) = address(0xDC2B0D2Dd2b7759D97D50db4eabDC36973110830).call(
+            abi.encodeWithSignature("selfRegister(uint256)", 92)
+        );
+        require(_success, "FeeM registration failed");
+    }
 
     function getPool(address collection) external view returns (address) {
         return collectionToPool[collection];
