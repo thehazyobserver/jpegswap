@@ -19,6 +19,7 @@ contract SwapPool is
     using AddressUpgradeable for address payable;
 
     address public nftCollection;
+    address public receiptContract;
     address public stonerPool;
 
     uint256 public swapFeeInWei;
@@ -46,12 +47,14 @@ contract SwapPool is
 
     function initialize(
         address _nftCollection,
+        address _receiptContract,
         address _stonerPool,
         uint256 _swapFeeInWei,
         uint256 _stonerShare
     ) public initializer {
         if (initialized) revert AlreadyInitialized();
         require(_nftCollection != address(0) && _stonerPool != address(0), "Zero address");
+        require(_receiptContract != address(0), "Zero receipt address");
         require(_stonerShare <= 100, "Invalid stoner share");
 
         __Ownable_init();
@@ -60,6 +63,7 @@ contract SwapPool is
         __UUPSUpgradeable_init();
 
         nftCollection = _nftCollection;
+        receiptContract = _receiptContract;
         stonerPool = _stonerPool;
         swapFeeInWei = _swapFeeInWei;
         stonerShare = _stonerShare;
@@ -114,13 +118,13 @@ contract SwapPool is
         emit Unpaused();
     }
 
-/// @dev Register my contract on Sonic FeeM
-function registerMe() external {
-    (bool _success,) = address(0xDC2B0D2Dd2b7759D97D50db4eabDC36973110830).call(
-        abi.encodeWithSignature("selfRegister(uint256)", 92)
-    );
-    require(_success, "FeeM registration failed");
-}
+    /// @dev Register my contract on Sonic FeeM
+    function registerMe() external onlyOwner {
+        (bool _success,) = address(0xDC2B0D2Dd2b7759D97D50db4eabDC36973110830).call(
+            abi.encodeWithSignature("selfRegister(uint256)", 92)
+        );
+        require(_success, "FeeM registration failed");
+    }
 
     function _authorizeUpgrade(address) internal override onlyOwner {}
 }
