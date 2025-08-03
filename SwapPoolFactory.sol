@@ -2,7 +2,6 @@
 
 // File: @openzeppelin/contracts@4.8.3/utils/Context.sol
 
-
 // OpenZeppelin Contracts v4.4.1 (utils/Context.sol)
 
 pragma solidity ^0.8.0;
@@ -29,11 +28,9 @@ abstract contract Context {
 
 // File: @openzeppelin/contracts@4.8.3/access/Ownable.sol
 
-
 // OpenZeppelin Contracts (last updated v4.7.0) (access/Ownable.sol)
 
 pragma solidity ^0.8.0;
-
 
 /**
  * @dev Contract module which provides a basic access control mechanism, where
@@ -113,7 +110,6 @@ abstract contract Ownable is Context {
 }
 
 // File: @openzeppelin/contracts@4.8.3/proxy/Proxy.sol
-
 
 // OpenZeppelin Contracts (last updated v4.6.0) (proxy/Proxy.sol)
 
@@ -203,7 +199,6 @@ abstract contract Proxy {
 
 // File: @openzeppelin/contracts@4.8.3/proxy/beacon/IBeacon.sol
 
-
 // OpenZeppelin Contracts v4.4.1 (proxy/beacon/IBeacon.sol)
 
 pragma solidity ^0.8.0;
@@ -221,7 +216,6 @@ interface IBeacon {
 }
 
 // File: @openzeppelin/contracts@4.8.3/interfaces/IERC1967.sol
-
 
 // OpenZeppelin Contracts (last updated v4.8.3) (interfaces/IERC1967.sol)
 
@@ -251,7 +245,6 @@ interface IERC1967 {
 
 // File: @openzeppelin/contracts@4.8.3/interfaces/draft-IERC1822.sol
 
-
 // OpenZeppelin Contracts (last updated v4.5.0) (interfaces/draft-IERC1822.sol)
 
 pragma solidity ^0.8.0;
@@ -273,7 +266,6 @@ interface IERC1822Proxiable {
 }
 
 // File: @openzeppelin/contracts@4.8.3/utils/Address.sol
-
 
 // OpenZeppelin Contracts (last updated v4.8.0) (utils/Address.sol)
 
@@ -521,7 +513,6 @@ library Address {
 
 // File: @openzeppelin/contracts@4.8.3/utils/StorageSlot.sol
 
-
 // OpenZeppelin Contracts (last updated v4.7.0) (utils/StorageSlot.sol)
 
 pragma solidity ^0.8.0;
@@ -612,15 +603,9 @@ library StorageSlot {
 
 // File: @openzeppelin/contracts@4.8.3/proxy/ERC1967/ERC1967Upgrade.sol
 
-
 // OpenZeppelin Contracts (last updated v4.8.3) (proxy/ERC1967/ERC1967Upgrade.sol)
 
 pragma solidity ^0.8.2;
-
-
-
-
-
 
 /**
  * @dev This abstract contract provides getters and event emitting update functions for
@@ -786,12 +771,9 @@ abstract contract ERC1967Upgrade is IERC1967 {
 
 // File: @openzeppelin/contracts@4.8.3/proxy/ERC1967/ERC1967Proxy.sol
 
-
 // OpenZeppelin Contracts (last updated v4.7.0) (proxy/ERC1967/ERC1967Proxy.sol)
 
 pragma solidity ^0.8.0;
-
-
 
 /**
  * @dev This contract implements an upgradeable proxy. It is upgradeable because calls are delegated to an
@@ -820,7 +802,6 @@ contract ERC1967Proxy is Proxy, ERC1967Upgrade {
 
 // File: @openzeppelin/contracts@4.8.3/utils/introspection/IERC165.sol
 
-
 // OpenZeppelin Contracts v4.4.1 (utils/introspection/IERC165.sol)
 
 pragma solidity ^0.8.0;
@@ -848,11 +829,9 @@ interface IERC165 {
 
 // File: @openzeppelin/contracts@4.8.3/token/ERC721/IERC721.sol
 
-
 // OpenZeppelin Contracts (last updated v4.8.0) (token/ERC721/IERC721.sol)
 
 pragma solidity ^0.8.0;
-
 
 /**
  * @dev Required interface of an ERC721 compliant contract.
@@ -995,11 +974,7 @@ interface IERC721 is IERC165 {
 
 // File: SwapPoolFactory.sol
 
-
 pragma solidity ^0.8.19;
-
-
-
 
 interface ISwapPoolNative {
     function initialize(
@@ -1016,17 +991,19 @@ contract SwapPoolFactoryNative is Ownable {
     mapping(address => address) public collectionToPool;
     address[] public allPools;
 
-    event PoolCreated(address indexed collection, address pool);
+    event PoolCreated(address indexed collection, address indexed pool, address indexed owner);
     event FactoryDeployed(address indexed implementation, address indexed owner);
-    event ImplementationUpdated(address newImplementation);
+    event ImplementationUpdated(address indexed oldImpl, address indexed newImpl);
 
     error ZeroAddressNotAllowed();
     error PoolAlreadyExists();
     error InvalidShareRange();
     error InvalidERC721();
+    error InvalidImplementation();
 
     constructor(address _implementation) {
         if (_implementation == address(0)) revert ZeroAddressNotAllowed();
+        if (!Address.isContract(_implementation)) revert InvalidImplementation();
         implementation = _implementation;
         emit FactoryDeployed(_implementation, msg.sender);
     }
@@ -1038,6 +1015,7 @@ contract SwapPoolFactoryNative is Ownable {
         uint256 swapFeeInWei,
         uint256 stonerShare
     ) external onlyOwner returns (address) {
+        // Input validation
         if (
             nftCollection == address(0) ||
             receiptContract == address(0) ||
@@ -1047,11 +1025,16 @@ contract SwapPoolFactoryNative is Ownable {
         if (collectionToPool[nftCollection] != address(0)) revert PoolAlreadyExists();
         if (stonerShare > 100) revert InvalidShareRange();
 
-        // Validate NFT contract interface
-        try IERC721(nftCollection).balanceOf(address(this)) {} catch {
+        // Enhanced ERC721 validation
+        if (!Address.isContract(nftCollection)) revert InvalidERC721();
+        
+        try IERC165(nftCollection).supportsInterface(0x80ac58cd) returns (bool supported) {
+            if (!supported) revert InvalidERC721();
+        } catch {
             revert InvalidERC721();
         }
 
+        // Create proxy with initialization data
         bytes memory initData = abi.encodeWithSelector(
             ISwapPoolNative.initialize.selector,
             nftCollection,
@@ -1064,20 +1047,24 @@ contract SwapPoolFactoryNative is Ownable {
         ERC1967Proxy proxy = new ERC1967Proxy(implementation, initData);
         address proxyAddress = address(proxy);
 
+        // Update mappings
         collectionToPool[nftCollection] = proxyAddress;
         allPools.push(proxyAddress);
 
-        emit PoolCreated(nftCollection, proxyAddress);
+        emit PoolCreated(nftCollection, proxyAddress, msg.sender);
         return proxyAddress;
     }
 
     function setImplementation(address newImpl) external onlyOwner {
         if (newImpl == address(0)) revert ZeroAddressNotAllowed();
+        if (!Address.isContract(newImpl)) revert InvalidImplementation();
+        
+        address oldImpl = implementation;
         implementation = newImpl;
-        emit ImplementationUpdated(newImpl);
+        emit ImplementationUpdated(oldImpl, newImpl);
     }
 
-    function registerMe() external {
+    function registerMe() external onlyOwner {
         (bool _success,) = address(0xDC2B0D2Dd2b7759D97D50db4eabDC36973110830).call(
             abi.encodeWithSignature("selfRegister(uint256)", 92)
         );
@@ -1090,5 +1077,13 @@ contract SwapPoolFactoryNative is Ownable {
 
     function getAllPools() external view returns (address[] memory) {
         return allPools;
+    }
+
+    function getPoolCount() external view returns (uint256) {
+        return allPools.length;
+    }
+
+    function isPoolCreated(address collection) external view returns (bool) {
+        return collectionToPool[collection] != address(0);
     }
 }
