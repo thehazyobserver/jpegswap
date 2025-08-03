@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 
 // File: @openzeppelin/contracts@4.8.3/utils/Context.sol
 
@@ -740,7 +741,8 @@ abstract contract ERC1967Upgrade is IERC1967 {
 
     /**
      * @dev The storage slot of the UpgradeableBeacon contract which defines the implementation for this proxy.
-     * This is bytes32(uint256(keccak256('eip1967.proxy.beacon')) - 1)) and is validated in the constructor.
+     * This is bytes32(uint256(keccak256('eip1967.proxy.beacon')) - 1)) and is
+     * validated in the constructor.
      */
     bytes32 internal constant _BEACON_SLOT = 0xa3f0ad74e5423aebfd80d3ef4346578335a9a72aeaee59ff6cb3582b35133d50;
 
