@@ -1375,6 +1375,7 @@ interface IERC721 is IERC165 {
     function isApprovedForAll(address owner, address operator) external view returns (bool);
 }
 
+
 interface IReceiptContract {
     function mint(address to, uint256 originalTokenId) external returns (uint256 receiptTokenId);
     function burn(uint256 receiptTokenId) external;
@@ -1399,6 +1400,11 @@ contract SwapPoolNative is
     uint256 public swapFeeInWei;
     uint256 public stonerShare; // Percentage (0–100)
     bool public initialized;
+
+    // 🎯 POOL TOKEN TRACKING - Track all available tokens
+    uint256[] public poolTokens;                    // Array of all tokens in pool
+    mapping(uint256 => uint256) public tokenIndexInPool; // tokenId => index in poolTokens array
+    mapping(uint256 => bool) public tokenInPool;    // tokenId => is in pool
 
     // 🎯 COMPLETE REWARD SYSTEM STATE
     struct StakeInfo {
@@ -1440,6 +1446,8 @@ contract SwapPoolNative is
     error TokenNotStaked();
     error NoRewardsToClaim();
     error InvalidReceiptToken();
+    error NoTokensAvailable();
+    error SameTokenSwap();
 
     modifier onlyInitialized() {
         if (!initialized) revert NotInitialized();
@@ -1488,7 +1496,7 @@ contract SwapPoolNative is
         lastUpdateTime = block.timestamp;
     }
 
-    // 💰 SWAP WITH COMPLETE REWARD DISTRIBUTION
+    // 💰 SWAP WITH COMPLETE REWARD DISTRIBUTION + POOL TRACKING
     function swapNFT(uint256 tokenIdIn, uint256 tokenIdOut)
         external
         payable
@@ -1499,6 +1507,7 @@ contract SwapPoolNative is
     {
         if (IERC721(nftCollection).ownerOf(tokenIdOut) != address(this)) revert TokenUnavailable();
         if (msg.value != swapFeeInWei) revert IncorrectFee();
+        if (tokenIdIn == tokenIdOut) revert SameTokenSwap();
 
         // Calculate fee distribution
         uint256 stonerAmount = 0;
@@ -1520,6 +1529,10 @@ contract SwapPoolNative is
             emit RewardsDistributed(rewardAmount);
         }
 
+        // 🔄 Update pool token tracking
+        _removeTokenFromPool(tokenIdOut);
+        _addTokenToPool(tokenIdIn);
+
         // Execute the swap
         IERC721(nftCollection).transferFrom(msg.sender, address(this), tokenIdIn);
         IERC721(nftCollection).transferFrom(address(this), msg.sender, tokenIdOut);
@@ -1527,7 +1540,7 @@ contract SwapPoolNative is
         emit SwapExecuted(msg.sender, tokenIdIn, tokenIdOut, msg.value);
     }
 
-    // 🏦 COMPLETE STAKING WITH RECEIPT MINTING
+    // 🏦 COMPLETE STAKING WITH RECEIPT MINTING + POOL TRACKING
     function stakeNFT(uint256 tokenId) 
         external 
         nonReentrant
@@ -1537,6 +1550,9 @@ contract SwapPoolNative is
     {
         // Transfer NFT to pool
         IERC721(nftCollection).transferFrom(msg.sender, address(this), tokenId);
+        
+        // Add to pool tracking
+        _addTokenToPool(tokenId);
         
         // Mint receipt token
         uint256 receiptTokenId = IReceiptContract(receiptContract).mint(msg.sender, tokenId);
@@ -1556,7 +1572,7 @@ contract SwapPoolNative is
         emit Staked(msg.sender, tokenId, receiptTokenId);
     }
 
-    // 🏦 COMPLETE UNSTAKING WITH RECEIPT BURNING
+    // 🎯 SMART UNSTAKING - Returns ORIGINAL if available, RANDOM if swapped away
     function unstakeNFT(uint256 receiptTokenId) 
         external 
         nonReentrant
@@ -1586,10 +1602,25 @@ contract SwapPoolNative is
         // Burn receipt token
         IReceiptContract(receiptContract).burn(receiptTokenId);
         
+        // 🎯 SMART TOKEN RETURN LOGIC
+        uint256 tokenToReturn;
+        
+        // Check if original token is still in the pool
+        if (tokenInPool[originalTokenId] && IERC721(nftCollection).ownerOf(originalTokenId) == address(this)) {
+            // ✅ Original token is available - return it!
+            tokenToReturn = originalTokenId;
+        } else {
+            // ❌ Original was swapped away - get random available token
+            tokenToReturn = _getRandomAvailableToken();
+        }
+        
+        // Remove token from pool tracking
+        _removeTokenFromPool(tokenToReturn);
+        
         // Return NFT
-        IERC721(nftCollection).transferFrom(address(this), msg.sender, originalTokenId);
+        IERC721(nftCollection).transferFrom(address(this), msg.sender, tokenToReturn);
 
-        emit Unstaked(msg.sender, originalTokenId, receiptTokenId);
+        emit Unstaked(msg.sender, tokenToReturn, receiptTokenId);
     }
 
     // 💸 COMPLETE REWARD CLAIMING
@@ -1605,6 +1636,54 @@ contract SwapPoolNative is
         payable(msg.sender).sendValue(reward);
 
         emit RewardsClaimed(msg.sender, reward);
+    }
+
+    // 🎲 POOL TOKEN MANAGEMENT FUNCTIONS
+
+    /**
+     * @dev Add token to pool tracking
+     */
+    function _addTokenToPool(uint256 tokenId) internal {
+        if (!tokenInPool[tokenId]) {
+            tokenIndexInPool[tokenId] = poolTokens.length;
+            poolTokens.push(tokenId);
+            tokenInPool[tokenId] = true;
+        }
+    }
+
+    /**
+     * @dev Remove token from pool tracking
+     */
+    function _removeTokenFromPool(uint256 tokenId) internal {
+        if (tokenInPool[tokenId]) {
+            uint256 index = tokenIndexInPool[tokenId];
+            uint256 lastToken = poolTokens[poolTokens.length - 1];
+            
+            // Move last token to deleted position
+            poolTokens[index] = lastToken;
+            tokenIndexInPool[lastToken] = index;
+            
+            // Remove last element
+            poolTokens.pop();
+            delete tokenIndexInPool[tokenId];
+            tokenInPool[tokenId] = false;
+        }
+    }
+
+    /**
+     * @dev Get random available token from pool
+     */
+    function _getRandomAvailableToken() internal view returns (uint256) {
+        if (poolTokens.length == 0) revert NoTokensAvailable();
+        
+        uint256 randomIndex = uint256(keccak256(abi.encodePacked(
+            block.timestamp,
+            block.difficulty,
+            msg.sender,
+            poolTokens.length
+        ))) % poolTokens.length;
+        
+        return poolTokens[randomIndex];
     }
 
     // 📊 COMPLETE REWARD CALCULATION FUNCTIONS
@@ -1682,6 +1761,12 @@ contract SwapPoolNative is
         payable(owner()).sendValue(address(this).balance);
     }
 
+    function emergencyWithdrawBatch(uint256[] calldata tokenIds) external onlyOwner {
+        for (uint256 i = 0; i < tokenIds.length; i++) {
+            IERC721(nftCollection).transferFrom(address(this), owner(), tokenIds[i]);
+        }
+    }
+
     function registerMe() external onlyOwner {
         (bool _success,) = address(0xDC2B0D2Dd2b7759D97D50db4eabDC36973110830).call(
             abi.encodeWithSignature("selfRegister(uint256)", 92)
@@ -1722,6 +1807,27 @@ contract SwapPoolNative is
 
     function getTokenForReceipt(uint256 receiptTokenId) external view returns (uint256) {
         return receiptToOriginalToken[receiptTokenId];
+    }
+
+    /**
+     * @dev Get all tokens currently in pool
+     */
+    function getPoolTokens() external view returns (uint256[] memory) {
+        return poolTokens;
+    }
+
+    /**
+     * @dev Get available tokens count
+     */
+    function getAvailableTokenCount() external view returns (uint256) {
+        return poolTokens.length;
+    }
+
+    /**
+     * @dev Check if a specific token is still in the pool
+     */
+    function isTokenInPool(uint256 tokenId) external view returns (bool) {
+        return tokenInPool[tokenId] && IERC721(nftCollection).ownerOf(tokenId) == address(this);
     }
 
     function _authorizeUpgrade(address) internal override onlyOwner {}
