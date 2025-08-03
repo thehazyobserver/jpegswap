@@ -1375,19 +1375,15 @@ interface IERC721 is IERC165 {
     function isApprovedForAll(address owner, address operator) external view returns (bool);
 }
 
-// File: SwapPool.sol
+interface IReceiptContract {
+    function mint(address to, uint256 originalTokenId) external returns (uint256 receiptTokenId);
+    function burn(uint256 receiptTokenId) external;
+    function ownerOf(uint256 tokenId) external view returns (address owner);
+    function getOriginalTokenId(uint256 receiptTokenId) external view returns (uint256);
+    function validateReceipt(uint256 receiptTokenId, address expectedPool) external view returns (bool);
+}
 
-
-pragma solidity ^0.8.19;
-
-
-
-
-
-
-
-
-contract SwapPool is
+contract SwapPoolNative is
     Initializable,
     OwnableUpgradeable,
     PausableUpgradeable,
@@ -1396,31 +1392,75 @@ contract SwapPool is
 {
     using AddressUpgradeable for address payable;
 
+    // Core state variables
     address public nftCollection;
     address public receiptContract;
     address public stonerPool;
-
     uint256 public swapFeeInWei;
     uint256 public stonerShare; // Percentage (0–100)
-
     bool public initialized;
 
+    // 🎯 COMPLETE REWARD SYSTEM STATE
+    struct StakeInfo {
+        uint256 stakedAt;        // Timestamp when staked
+        uint256 rewardDebt;      // Reward debt for fair calculation
+        bool active;             // Is this stake active
+    }
+
+    mapping(uint256 => StakeInfo) public stakeInfos;           // receiptTokenId => StakeInfo
+    mapping(address => uint256[]) public userStakes;           // user => receiptTokenIds[]
+    mapping(uint256 => uint256) public receiptToOriginalToken; // receiptId => originalTokenId
+    mapping(uint256 => uint256) public originalToReceiptToken; // originalTokenId => receiptId
+
+    uint256 public totalStaked;                    // Total number of staked NFTs
+    uint256 public rewardPerTokenStored;           // Accumulated reward per token
+    uint256 public lastUpdateTime;                 // Last reward update timestamp
+    uint256 public totalRewardsDistributed;       // Total rewards distributed
+
+    // User reward tracking
+    mapping(address => uint256) public pendingRewards;        // Claimable rewards
+    mapping(address => uint256) public userRewardPerTokenPaid; // Last paid reward per token
+
+    // Events
     event SwapExecuted(address indexed user, uint256 tokenIdIn, uint256 tokenIdOut, uint256 feePaid);
-    event Staked(address indexed user, uint256 tokenId);
+    event Staked(address indexed user, uint256 tokenId, uint256 receiptTokenId);
+    event Unstaked(address indexed user, uint256 tokenId, uint256 receiptTokenId);
+    event RewardsClaimed(address indexed user, uint256 amount);
+    event RewardsDistributed(uint256 amount);
     event SwapFeeUpdated(uint256 newFeeInWei);
     event StonerShareUpdated(uint256 newShare);
-    event Paused();
-    event Unpaused();
 
+    // Custom errors
     error AlreadyInitialized();
     error NotInitialized();
     error InvalidStonerShare();
     error TokenUnavailable();
     error IncorrectFee();
+    error NotReceiptOwner();
+    error TokenNotStaked();
+    error NoRewardsToClaim();
+    error InvalidReceiptToken();
 
     modifier onlyInitialized() {
         if (!initialized) revert NotInitialized();
         _;
+    }
+
+    // 🔄 CRITICAL: Reward calculation modifier for fair distribution
+    modifier updateReward(address account) {
+        rewardPerTokenStored = rewardPerToken();
+        lastUpdateTime = block.timestamp;
+        
+        if (account != address(0)) {
+            pendingRewards[account] = earned(account);
+            userRewardPerTokenPaid[account] = rewardPerTokenStored;
+        }
+        _;
+    }
+
+    /// @custom:oz-upgrades-unsafe-allow constructor
+    constructor() {
+        _disableInitializers();
     }
 
     function initialize(
@@ -1430,7 +1470,6 @@ contract SwapPool is
         uint256 _swapFeeInWei,
         uint256 _stonerShare
     ) public initializer {
-        if (initialized) revert AlreadyInitialized();
         require(_nftCollection != address(0) && _stonerPool != address(0), "Zero address");
         require(_receiptContract != address(0), "Zero receipt address");
         require(_stonerShare <= 100, "Invalid stoner share");
@@ -1446,35 +1485,176 @@ contract SwapPool is
         swapFeeInWei = _swapFeeInWei;
         stonerShare = _stonerShare;
         initialized = true;
+        lastUpdateTime = block.timestamp;
     }
 
+    // 💰 SWAP WITH COMPLETE REWARD DISTRIBUTION
     function swapNFT(uint256 tokenIdIn, uint256 tokenIdOut)
         external
         payable
         nonReentrant
         onlyInitialized
         whenNotPaused
+        updateReward(address(0)) // Update global rewards
     {
         if (IERC721(nftCollection).ownerOf(tokenIdOut) != address(this)) revert TokenUnavailable();
         if (msg.value != swapFeeInWei) revert IncorrectFee();
 
-        // Forward stoner share to stonerPool
+        // Calculate fee distribution
+        uint256 stonerAmount = 0;
+        uint256 rewardAmount = msg.value;
+
         if (stonerShare > 0) {
-            uint256 stonerAmount = (msg.value * stonerShare) / 100;
+            stonerAmount = (msg.value * stonerShare) / 100;
+            rewardAmount = msg.value - stonerAmount;
+            
+            // Send stoner share immediately
             payable(stonerPool).sendValue(stonerAmount);
         }
 
+        // 🎯 DISTRIBUTE REMAINING AS REWARDS TO STAKERS
+        if (rewardAmount > 0 && totalStaked > 0) {
+            // Add rewards to the reward pool (per-token basis)
+            rewardPerTokenStored += (rewardAmount * 1e18) / totalStaked;
+            totalRewardsDistributed += rewardAmount;
+            emit RewardsDistributed(rewardAmount);
+        }
+
+        // Execute the swap
         IERC721(nftCollection).transferFrom(msg.sender, address(this), tokenIdIn);
         IERC721(nftCollection).transferFrom(address(this), msg.sender, tokenIdOut);
 
         emit SwapExecuted(msg.sender, tokenIdIn, tokenIdOut, msg.value);
     }
 
-    function stakeNFT(uint256 tokenId) external onlyInitialized whenNotPaused {
+    // 🏦 COMPLETE STAKING WITH RECEIPT MINTING
+    function stakeNFT(uint256 tokenId) 
+        external 
+        nonReentrant
+        onlyInitialized 
+        whenNotPaused 
+        updateReward(msg.sender)
+    {
+        // Transfer NFT to pool
         IERC721(nftCollection).transferFrom(msg.sender, address(this), tokenId);
-        emit Staked(msg.sender, tokenId);
+        
+        // Mint receipt token
+        uint256 receiptTokenId = IReceiptContract(receiptContract).mint(msg.sender, tokenId);
+        
+        // Update stake tracking with COMPLETE data
+        stakeInfos[receiptTokenId] = StakeInfo({
+            stakedAt: block.timestamp,
+            rewardDebt: rewardPerTokenStored,
+            active: true
+        });
+        
+        receiptToOriginalToken[receiptTokenId] = tokenId;
+        originalToReceiptToken[tokenId] = receiptTokenId;
+        userStakes[msg.sender].push(receiptTokenId);
+        totalStaked++;
+
+        emit Staked(msg.sender, tokenId, receiptTokenId);
     }
 
+    // 🏦 COMPLETE UNSTAKING WITH RECEIPT BURNING
+    function unstakeNFT(uint256 receiptTokenId) 
+        external 
+        nonReentrant
+        onlyInitialized 
+        whenNotPaused 
+        updateReward(msg.sender)
+    {
+        // Verify receipt ownership
+        if (IReceiptContract(receiptContract).ownerOf(receiptTokenId) != msg.sender) revert NotReceiptOwner();
+        
+        StakeInfo storage stakeInfo = stakeInfos[receiptTokenId];
+        if (!stakeInfo.active) revert TokenNotStaked();
+        
+        uint256 originalTokenId = receiptToOriginalToken[receiptTokenId];
+        
+        // Mark stake as inactive
+        stakeInfo.active = false;
+        totalStaked--;
+        
+        // Remove from user stakes array
+        _removeFromUserStakes(msg.sender, receiptTokenId);
+        
+        // Clean up mappings
+        delete receiptToOriginalToken[receiptTokenId];
+        delete originalToReceiptToken[originalTokenId];
+        
+        // Burn receipt token
+        IReceiptContract(receiptContract).burn(receiptTokenId);
+        
+        // Return NFT
+        IERC721(nftCollection).transferFrom(address(this), msg.sender, originalTokenId);
+
+        emit Unstaked(msg.sender, originalTokenId, receiptTokenId);
+    }
+
+    // 💸 COMPLETE REWARD CLAIMING
+    function claimRewards() 
+        external 
+        nonReentrant 
+        updateReward(msg.sender)
+    {
+        uint256 reward = pendingRewards[msg.sender];
+        if (reward == 0) revert NoRewardsToClaim();
+        
+        pendingRewards[msg.sender] = 0;
+        payable(msg.sender).sendValue(reward);
+
+        emit RewardsClaimed(msg.sender, reward);
+    }
+
+    // 📊 COMPLETE REWARD CALCULATION FUNCTIONS
+
+    /**
+     * @dev Calculate reward per token (18 decimal precision)
+     */
+    function rewardPerToken() public view returns (uint256) {
+        return rewardPerTokenStored; // Already updated in modifier
+    }
+
+    /**
+     * @dev Calculate earned rewards for an account with PROPER TRACKING
+     * @param account User address
+     */
+    function earned(address account) public view returns (uint256) {
+        uint256 userStakedCount = getUserActiveStakeCount(account);
+        if (userStakedCount == 0) return pendingRewards[account];
+        
+        uint256 rewardDiff = rewardPerToken() - userRewardPerTokenPaid[account];
+        return pendingRewards[account] + (userStakedCount * rewardDiff) / 1e18;
+    }
+
+    /**
+     * @dev Get number of ACTIVE stakes for user - PROPERLY IMPLEMENTED
+     */
+    function getUserActiveStakeCount(address user) public view returns (uint256 count) {
+        uint256[] memory stakes = userStakes[user];
+        for (uint256 i = 0; i < stakes.length; i++) {
+            if (stakeInfos[stakes[i]].active) {
+                count++;
+            }
+        }
+    }
+
+    /**
+     * @dev Remove receipt token from user's stakes array - PROPERLY IMPLEMENTED
+     */
+    function _removeFromUserStakes(address user, uint256 receiptTokenId) internal {
+        uint256[] storage stakes = userStakes[user];
+        for (uint256 i = 0; i < stakes.length; i++) {
+            if (stakes[i] == receiptTokenId) {
+                stakes[i] = stakes[stakes.length - 1];
+                stakes.pop();
+                break;
+            }
+        }
+    }
+
+    // 🔧 ADMIN FUNCTIONS
     function setSwapFee(uint256 newFeeInWei) external onlyOwner {
         swapFeeInWei = newFeeInWei;
         emit SwapFeeUpdated(newFeeInWei);
@@ -1488,15 +1668,20 @@ contract SwapPool is
 
     function pause() external onlyOwner {
         _pause();
-        emit Paused();
     }
 
     function unpause() external onlyOwner {
         _unpause();
-        emit Unpaused();
     }
 
-    /// @dev Register my contract on Sonic FeeM
+    function emergencyWithdraw(uint256 tokenId) external onlyOwner {
+        IERC721(nftCollection).transferFrom(address(this), owner(), tokenId);
+    }
+
+    function emergencyWithdrawETH() external onlyOwner {
+        payable(owner()).sendValue(address(this).balance);
+    }
+
     function registerMe() external onlyOwner {
         (bool _success,) = address(0xDC2B0D2Dd2b7759D97D50db4eabDC36973110830).call(
             abi.encodeWithSignature("selfRegister(uint256)", 92)
@@ -1504,5 +1689,43 @@ contract SwapPool is
         require(_success, "FeeM registration failed");
     }
 
+    // 📊 VIEW FUNCTIONS
+    function getPoolInfo() external view returns (
+        address collection,
+        uint256 totalNFTs,
+        uint256 feeInWei,
+        uint256 stonerPercent,
+        uint256 stakedCount,
+        uint256 rewardsDistributed
+    ) {
+        return (
+            nftCollection,
+            IERC721(nftCollection).balanceOf(address(this)),
+            swapFeeInWei,
+            stonerShare,
+            totalStaked,
+            totalRewardsDistributed
+        );
+    }
+
+    function getUserStakes(address user) external view returns (uint256[] memory) {
+        return userStakes[user];
+    }
+
+    function getStakeInfo(uint256 receiptTokenId) external view returns (StakeInfo memory) {
+        return stakeInfos[receiptTokenId];
+    }
+
+    function getReceiptForToken(uint256 tokenId) external view returns (uint256) {
+        return originalToReceiptToken[tokenId];
+    }
+
+    function getTokenForReceipt(uint256 receiptTokenId) external view returns (uint256) {
+        return receiptToOriginalToken[receiptTokenId];
+    }
+
     function _authorizeUpgrade(address) internal override onlyOwner {}
+
+    // Allow contract to receive ETH
+    receive() external payable {}
 }
