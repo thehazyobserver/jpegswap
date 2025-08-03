@@ -1375,7 +1375,7 @@ interface IERC721 is IERC165 {
     function isApprovedForAll(address owner, address operator) external view returns (bool);
 }
 
-
+// File: contracts/SwapPoolNative.sol
 interface IReceiptContract {
     function mint(address to, uint256 originalTokenId) external returns (uint256 receiptTokenId);
     function burn(uint256 receiptTokenId) external;
@@ -1427,10 +1427,16 @@ contract SwapPoolNative is
     mapping(address => uint256) public pendingRewards;        // Claimable rewards
     mapping(address => uint256) public userRewardPerTokenPaid; // Last paid reward per token
 
+    // 🔄 BATCH OPERATION TRACKING
+    bool private _inBatchOperation;
+    uint256[] private _batchReceiptTokens;
+    uint256[] private _batchReturnedTokens;
+
     // Events
     event SwapExecuted(address indexed user, uint256 tokenIdIn, uint256 tokenIdOut, uint256 feePaid);
     event Staked(address indexed user, uint256 tokenId, uint256 receiptTokenId);
     event Unstaked(address indexed user, uint256 tokenId, uint256 receiptTokenId);
+    event BatchUnstaked(address indexed user, uint256[] receiptTokenIds, uint256[] tokensReceived);
     event RewardsClaimed(address indexed user, uint256 amount);
     event RewardsDistributed(uint256 amount);
     event SwapFeeUpdated(uint256 newFeeInWei);
@@ -1580,6 +1586,83 @@ contract SwapPoolNative is
         whenNotPaused 
         updateReward(msg.sender)
     {
+        _unstakeNFTInternal(receiptTokenId);
+    }
+
+    // 🔄 PARTIAL UNSTAKING - Unstake multiple NFTs in a single transaction
+    function unstakeNFTBatch(uint256[] calldata receiptTokenIds) 
+        external 
+        nonReentrant
+        onlyInitialized 
+        whenNotPaused 
+        updateReward(msg.sender)
+    {
+        require(receiptTokenIds.length > 0, "Empty array");
+        require(receiptTokenIds.length <= 10, "Too many at once"); // Gas limit protection
+        
+        // Initialize batch tracking
+        _inBatchOperation = true;
+        delete _batchReceiptTokens;
+        delete _batchReturnedTokens;
+        
+        for (uint256 i = 0; i < receiptTokenIds.length; i++) {
+            _unstakeNFTInternal(receiptTokenIds[i]);
+        }
+        
+        // Emit batch event
+        emit BatchUnstaked(msg.sender, _batchReceiptTokens, _batchReturnedTokens);
+        
+        // Reset batch tracking
+        _inBatchOperation = false;
+        delete _batchReceiptTokens;
+        delete _batchReturnedTokens;
+    }
+
+    // 🔄 UNSTAKE ALL - Unstake all user's staked NFTs in a single transaction
+    function unstakeAllNFTs() 
+        external 
+        nonReentrant
+        onlyInitialized 
+        whenNotPaused 
+        updateReward(msg.sender)
+    {
+        uint256[] memory userReceiptTokens = userStakes[msg.sender];
+        require(userReceiptTokens.length > 0, "No stakes found");
+        
+        // Create array of active receipt tokens
+        uint256[] memory activeReceipts = new uint256[](userReceiptTokens.length);
+        uint256 activeCount = 0;
+        
+        for (uint256 i = 0; i < userReceiptTokens.length; i++) {
+            if (stakeInfos[userReceiptTokens[i]].active) {
+                activeReceipts[activeCount] = userReceiptTokens[i];
+                activeCount++;
+            }
+        }
+        
+        require(activeCount > 0, "No active stakes");
+        require(activeCount <= 20, "Too many stakes - use batch function"); // Gas protection
+        
+        // Initialize batch tracking
+        _inBatchOperation = true;
+        delete _batchReceiptTokens;
+        delete _batchReturnedTokens;
+        
+        for (uint256 i = 0; i < activeCount; i++) {
+            _unstakeNFTInternal(activeReceipts[i]);
+        }
+        
+        // Emit batch event
+        emit BatchUnstaked(msg.sender, _batchReceiptTokens, _batchReturnedTokens);
+        
+        // Reset batch tracking
+        _inBatchOperation = false;
+        delete _batchReceiptTokens;
+        delete _batchReturnedTokens;
+    }
+
+    // 🎯 INTERNAL UNSTAKING LOGIC WITH BATCH OPERATION SUPPORT
+    function _unstakeNFTInternal(uint256 receiptTokenId) internal {
         // Verify receipt ownership
         if (IReceiptContract(receiptContract).ownerOf(receiptTokenId) != msg.sender) revert NotReceiptOwner();
         
@@ -1620,7 +1703,13 @@ contract SwapPoolNative is
         // Return NFT
         IERC721(nftCollection).transferFrom(address(this), msg.sender, tokenToReturn);
 
-        emit Unstaked(msg.sender, tokenToReturn, receiptTokenId);
+        // Track for batch operations or emit individual event
+        if (_inBatchOperation) {
+            _batchReceiptTokens.push(receiptTokenId);
+            _batchReturnedTokens.push(tokenToReturn);
+        } else {
+            emit Unstaked(msg.sender, tokenToReturn, receiptTokenId);
+        }
     }
 
     // 💸 COMPLETE REWARD CLAIMING
@@ -1828,6 +1917,67 @@ contract SwapPoolNative is
      */
     function isTokenInPool(uint256 tokenId) external view returns (bool) {
         return tokenInPool[tokenId] && IERC721(nftCollection).ownerOf(tokenId) == address(this);
+    }
+
+    // 🔄 PARTIAL UNSTAKING VIEW FUNCTIONS
+
+    /**
+     * @dev Get user's active stake count and receipt tokens
+     * @param user User address
+     */
+    function getUserActiveStakeDetails(address user) external view returns (
+        uint256 activeCount,
+        uint256[] memory activeReceiptTokenIds,
+        uint256[] memory originalTokenIds,
+        uint256[] memory stakingTimestamps
+    ) {
+        uint256[] memory userReceiptTokens = userStakes[user];
+        
+        // First pass: count active stakes
+        uint256 count = 0;
+        for (uint256 i = 0; i < userReceiptTokens.length; i++) {
+            if (stakeInfos[userReceiptTokens[i]].active) {
+                count++;
+            }
+        }
+        
+        // Initialize arrays
+        activeReceiptTokenIds = new uint256[](count);
+        originalTokenIds = new uint256[](count);
+        stakingTimestamps = new uint256[](count);
+        
+        // Second pass: populate arrays
+        uint256 index = 0;
+        for (uint256 i = 0; i < userReceiptTokens.length; i++) {
+            uint256 receiptTokenId = userReceiptTokens[i];
+            if (stakeInfos[receiptTokenId].active) {
+                activeReceiptTokenIds[index] = receiptTokenId;
+                originalTokenIds[index] = receiptToOriginalToken[receiptTokenId];
+                stakingTimestamps[index] = stakeInfos[receiptTokenId].stakedAt;
+                index++;
+            }
+        }
+        
+        activeCount = count;
+    }
+
+    /**
+     * @dev Get gas estimate for batch unstaking
+     * @param numTokens Number of tokens to unstake
+     */
+    function estimateBatchUnstakeGas(uint256 numTokens) external pure returns (uint256 estimatedGas) {
+        // Rough estimation: ~150k gas per unstake + 21k base
+        return 21000 + (numTokens * 150000);
+    }
+
+    /**
+     * @dev Check if user can unstake all their stakes in one transaction
+     * @param user User address
+     */
+    function canUnstakeAll(address user) external view returns (bool canUnstake, uint256 activeStakes, uint256 estimatedGas) {
+        activeStakes = getUserActiveStakeCount(user);
+        canUnstake = activeStakes > 0 && activeStakes <= 20;
+        estimatedGas = 21000 + (activeStakes * 150000);
     }
 
     function _authorizeUpgrade(address) internal override onlyOwner {}
