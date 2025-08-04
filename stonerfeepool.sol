@@ -1549,6 +1549,20 @@ contract StonerFeePool is
         emit RewardClaimed(msg.sender, reward);
     }
 
+    function claimRewardsOnly() external nonReentrant {
+        _updateReward(msg.sender);
+        uint256 reward = rewards[msg.sender];
+        require(reward > 0, "No rewards to claim");
+        
+        rewards[msg.sender] = 0;
+        totalRewardsClaimed += reward;
+        
+        (bool success, ) = payable(msg.sender).call{value: reward}("");
+        require(success, "Transfer failed");
+        
+        emit RewardClaimed(msg.sender, reward);
+    }
+
     function _updateReward(address user) internal {
         uint256 userBalance = stakedTokens[user].length;
         uint256 owed = (userBalance * (rewardPerTokenStored - userRewardPerTokenPaid[user]));
