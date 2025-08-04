@@ -1402,6 +1402,9 @@ contract SwapPoolNative is
     uint256 public stonerShare; // Percentage (0–100)
     bool public initialized;
 
+    // 🎯 LIQUIDITY MANAGEMENT
+    uint256 public constant MIN_POOL_SIZE = 5; // Minimum tokens required for swaps
+
     // 🎯 POOL TOKEN TRACKING - Track all available tokens
     uint256[] public poolTokens;                    // Array of all tokens in pool
     mapping(uint256 => uint256) public tokenIndexInPool; // tokenId => index in poolTokens array
@@ -1471,7 +1474,13 @@ contract SwapPoolNative is
         _;
     }
 
-    // 🔄 CRITICAL: Reward calculation modifier for fair distribution
+    // � LIQUIDITY PROTECTION MODIFIER
+    modifier minimumLiquidity() {
+        require(poolTokens.length >= MIN_POOL_SIZE, "Insufficient liquidity");
+        _;
+    }
+
+    // �🔄 CRITICAL: Reward calculation modifier for fair distribution
     modifier updateReward(address account) {
         rewardPerTokenStored = rewardPerToken();
         lastUpdateTime = block.timestamp;
@@ -1520,6 +1529,7 @@ contract SwapPoolNative is
         nonReentrant
         onlyInitialized
         whenNotPaused
+        minimumLiquidity
         updateReward(address(0)) // Update global rewards
     {
         if (IERC721(nftCollection).ownerOf(tokenIdOut) != address(this)) revert TokenUnavailable();
