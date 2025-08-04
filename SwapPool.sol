@@ -2509,7 +2509,7 @@ contract SwapPoolNative is
         userPendingRewards = earned(user);
         
         // Get user's active stakes details
-        (,uint256[] memory receiptIds, uint256[] memory originalIds, uint256[] memory timestamps) = 
+        (, , uint256[] memory originalIds, uint256[] memory timestamps) = 
             getUserActiveStakeDetails(user);
         
         userTokens = originalIds;
@@ -2565,18 +2565,13 @@ contract SwapPoolNative is
     /**
      * @dev Get optimized swap interface data
      */
-    function getSwapInterfaceData(address user) external view returns (
+    function getSwapInterfaceData(address /* user */) external view returns (
         uint256[] memory userOwnedTokens,
         uint256[] memory swappableTokens,
         uint256 swapFee,
         uint256 estimatedGasSwap,
         bool poolActive
     ) {
-        // Get user's tokens that can be swapped (not staked)
-        uint256 userBalance = IERC721(nftCollection).balanceOf(user);
-        uint256[] memory ownedTokens = new uint256[](userBalance);
-        uint256 ownedCount = 0;
-        
         // Note: In production, you'd implement a more efficient way to get user tokens
         // This is simplified for demonstration
         
@@ -2718,10 +2713,9 @@ contract SwapPoolNative is
 
     /**
      * @dev Get batch operation results with detailed error information
-     * @param user The user address to check results for
      * @return result Detailed batch operation result
      */
-    function getBatchOperationResult(address user) external view returns (BatchOperationResult memory result) {
+    function getBatchOperationResult(address /* user */) external pure returns (BatchOperationResult memory result) {
         // This would be stored per user in a mapping during actual batch operations
         // For now, return a default empty result structure
         result.successfulTokenIds = new uint256[](0);
