@@ -1011,6 +1011,8 @@ interface ISwapPoolNative {
         uint256 swapFeeInWei,
         uint256 stonerShare
     ) external;
+    function pause() external;
+    function unpause() external;
 }
 
 interface ISwapPoolRewards {
@@ -1494,5 +1496,27 @@ contract SwapPoolFactoryNative is Ownable, ReentrancyGuard {
             } catch {}
             // volume24h and apy would require additional tracking
         }
+    }
+
+    // 🚨 EMERGENCY FUNCTIONS
+    function emergencyPauseAllPools() external onlyOwner {
+        for (uint256 i = 0; i < allPools.length; i++) {
+            try ISwapPoolNative(allPools[i]).pause() {} catch {}
+        }
+    }
+
+    function emergencyUnpauseAllPools() external onlyOwner {
+        for (uint256 i = 0; i < allPools.length; i++) {
+            try ISwapPoolNative(allPools[i]).unpause() {} catch {}
+        }
+    }
+
+    function updateImplementation(address newImplementation) external onlyOwner {
+        if (newImplementation == address(0)) revert ZeroAddressNotAllowed();
+        if (!Address.isContract(newImplementation)) revert InvalidImplementation();
+        
+        address oldImpl = implementation;
+        implementation = newImplementation;
+        emit ImplementationUpdated(oldImpl, newImplementation);
     }
 }

@@ -1468,6 +1468,8 @@ contract SwapPoolNative is
     error NoTokensAvailable();
     error SameTokenSwap();
     error InsufficientLiquidity(uint256 available, uint256 minimum);
+    error NotTokenOwner();
+    error TokenNotApproved();
 
     modifier onlyInitialized() {
         if (!initialized) revert NotInitialized();
@@ -1532,6 +1534,12 @@ contract SwapPoolNative is
         minimumLiquidity
         updateReward(address(0)) // Update global rewards
     {
+        // 🛡️ ENHANCED VALIDATION
+        if (IERC721(nftCollection).ownerOf(tokenIdIn) != msg.sender) revert NotTokenOwner();
+        if (IERC721(nftCollection).getApproved(tokenIdIn) != address(this) && 
+            !IERC721(nftCollection).isApprovedForAll(msg.sender, address(this))) {
+            revert TokenNotApproved();
+        }
         if (IERC721(nftCollection).ownerOf(tokenIdOut) != address(this)) revert TokenUnavailable();
         if (msg.value != swapFeeInWei) revert IncorrectFee();
         if (tokenIdIn == tokenIdOut) revert SameTokenSwap();

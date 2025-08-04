@@ -1455,6 +1455,35 @@ contract StonerFeePool is
         emit Staked(msg.sender, tokenId);
     }
 
+    function stakeMultiple(uint256[] calldata tokenIds) external whenNotPaused {
+        require(tokenIds.length > 0, "Empty array");
+        require(tokenIds.length <= 10, "Too many tokens"); // Gas protection
+        
+        // Verify all tokens are not already staked and user owns them
+        for (uint256 i = 0; i < tokenIds.length; i++) {
+            if (isStaked[tokenIds[i]]) revert AlreadyStaked();
+            if (stonerNFT.ownerOf(tokenIds[i]) != msg.sender) revert NotYourToken();
+        }
+        
+        // Update rewards once for the user
+        _updateReward(msg.sender);
+        
+        // Process all stakes
+        for (uint256 i = 0; i < tokenIds.length; i++) {
+            uint256 tokenId = tokenIds[i];
+            
+            stonerNFT.transferFrom(msg.sender, address(this), tokenId);
+            isStaked[tokenId] = true;
+            stakerOf[tokenId] = msg.sender;
+            stakedTokens[msg.sender].push(tokenId);
+            
+            receiptToken.mint(msg.sender, tokenId);
+            totalStaked++;
+            
+            emit Staked(msg.sender, tokenId);
+        }
+    }
+
     function unstake(uint256 tokenId) external whenNotPaused nonReentrant {
         if (stakerOf[tokenId] != msg.sender) revert NotYourToken();
         

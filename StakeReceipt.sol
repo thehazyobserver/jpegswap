@@ -1831,7 +1831,7 @@ contract StakeReceipt is ERC721Enumerable, Ownable {
     }
     
     /// @dev Register my contract on Sonic FeeM
-    function registerMe() external {
+    function registerMe() external onlyOwner {
         (bool _success,) = address(0xDC2B0D2Dd2b7759D97D50db4eabDC36973110830).call(
             abi.encodeWithSignature("selfRegister(uint256)", 92)
         );
