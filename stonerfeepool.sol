@@ -1597,6 +1597,34 @@ contract StonerFeePool is
         emit EmergencyUnstake(tokenId, to);
     }
 
+    function emergencyUnstakeWithClaim(uint256 tokenId) external onlyOwner {
+        if (!isStaked[tokenId]) revert NotStaked();
+        
+        address staker = stakerOf[tokenId];
+        if (staker != address(0)) {
+            // Update and auto-claim rewards for the user
+            _updateReward(staker);
+            uint256 reward = rewards[staker];
+            if (reward > 0) {
+                rewards[staker] = 0;
+                totalRewardsClaimed += reward;
+                
+                (bool success, ) = payable(staker).call{value: reward}("");
+                if (success) {
+                    emit RewardClaimed(staker, reward);
+                }
+            }
+            
+            _removeFromArray(stakedTokens[staker], tokenId);
+            delete stakerOf[tokenId];
+            isStaked[tokenId] = false;
+            totalStaked--;
+        }
+        
+        stonerNFT.transferFrom(address(this), owner(), tokenId);
+        emit EmergencyUnstake(tokenId, owner());
+    }
+
     function registerMe() external onlyOwner {
         (bool _success,) = address(0xDC2B0D2Dd2b7759D97D50db4eabDC36973110830).call(
             abi.encodeWithSignature("selfRegister(uint256)", 92)
