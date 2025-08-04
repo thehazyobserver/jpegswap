@@ -1758,6 +1758,11 @@ contract StakeReceipt is ERC721Enumerable, Ownable {
     
     // Mapping to track original token IDs for each receipt
     mapping(uint256 => uint256) public receiptToOriginalToken;
+    
+    // 🕒 TIMESTAMP TRACKING FOR ANALYTICS
+    mapping(uint256 => uint256) public receiptMintTime;      // receiptId => mint timestamp
+    mapping(uint256 => address) public receiptMinter;        // receiptId => original minter
+    
     uint256 private _currentReceiptId;
 
     event BaseURIUpdated(string newBaseURI);
@@ -1789,6 +1794,11 @@ contract StakeReceipt is ERC721Enumerable, Ownable {
         _currentReceiptId++;
         
         receiptToOriginalToken[receiptTokenId] = originalTokenId;
+        
+        // 🕒 RECORD TIMESTAMP AND MINTER FOR ANALYTICS
+        receiptMintTime[receiptTokenId] = block.timestamp;
+        receiptMinter[receiptTokenId] = to;
+        
         _mint(to, receiptTokenId);
         
         return receiptTokenId;
@@ -1796,6 +1806,9 @@ contract StakeReceipt is ERC721Enumerable, Ownable {
 
     function burn(uint256 receiptTokenId) external onlyPool {
         delete receiptToOriginalToken[receiptTokenId];
+        // Keep timestamp data for historical analytics
+        // delete receiptMintTime[receiptTokenId];
+        // delete receiptMinter[receiptTokenId];
         _burn(receiptTokenId);
     }
 
@@ -1811,6 +1824,11 @@ contract StakeReceipt is ERC721Enumerable, Ownable {
             _currentReceiptId++;
             
             receiptToOriginalToken[receiptTokenId] = originalTokenIds[i];
+            
+            // 🕒 RECORD TIMESTAMP AND MINTER FOR ANALYTICS
+            receiptMintTime[receiptTokenId] = block.timestamp;
+            receiptMinter[receiptTokenId] = to;
+            
             _mint(to, receiptTokenId);
             receiptTokenIds[i] = receiptTokenId;
         }
@@ -1824,6 +1842,9 @@ contract StakeReceipt is ERC721Enumerable, Ownable {
         
         for (uint256 i = 0; i < receiptTokenIds.length; i++) {
             delete receiptToOriginalToken[receiptTokenIds[i]];
+            // Keep timestamp data for historical analytics
+            // delete receiptMintTime[receiptTokenIds[i]];
+            // delete receiptMinter[receiptTokenIds[i]];
             _burn(receiptTokenIds[i]);
         }
     }
@@ -1933,6 +1954,95 @@ contract StakeReceipt is ERC721Enumerable, Ownable {
 
     function supportsInterface(bytes4 interfaceId) public view override(ERC721Enumerable) returns (bool) {
         return super.supportsInterface(interfaceId);
+    }
+
+    // 🕒 TIMESTAMP ANALYTICS FUNCTIONS
+
+    /**
+     * @dev Get receipt token creation time and original minter
+     * @param receiptTokenId Receipt token ID to check
+     */
+    function getReceiptInfo(uint256 receiptTokenId) external view returns (
+        uint256 originalTokenId,
+        uint256 mintTime,
+        address originalMinter,
+        uint256 age
+    ) {
+        originalTokenId = receiptToOriginalToken[receiptTokenId];
+        mintTime = receiptMintTime[receiptTokenId];
+        originalMinter = receiptMinter[receiptTokenId];
+        age = mintTime > 0 ? block.timestamp - mintTime : 0;
+    }
+
+    /**
+     * @dev Get user's receipt history with timestamps
+     * @param user User address to check
+     */
+    function getUserReceiptHistory(address user) external view returns (
+        uint256[] memory receiptIds,
+        uint256[] memory originalTokenIds,
+        uint256[] memory mintTimes,
+        uint256[] memory ages
+    ) {
+        uint256 balance = balanceOf(user);
+        receiptIds = new uint256[](balance);
+        originalTokenIds = new uint256[](balance);
+        mintTimes = new uint256[](balance);
+        ages = new uint256[](balance);
+        
+        for (uint256 i = 0; i < balance; i++) {
+            uint256 receiptId = tokenOfOwnerByIndex(user, i);
+            receiptIds[i] = receiptId;
+            originalTokenIds[i] = receiptToOriginalToken[receiptId];
+            mintTimes[i] = receiptMintTime[receiptId];
+            ages[i] = receiptMintTime[receiptId] > 0 ? 
+                block.timestamp - receiptMintTime[receiptId] : 0;
+        }
+    }
+
+    /**
+     * @dev Get collection timeline statistics
+     */
+    function getCollectionTimeline() external view returns (
+        uint256 totalMinted,
+        uint256 totalBurned,
+        uint256 currentSupply,
+        uint256 averageAge,
+        uint256 oldestActive,
+        uint256 newestActive
+    ) {
+        currentSupply = totalSupply();
+        totalMinted = _currentReceiptId - 1; // Since we start from 1
+        totalBurned = totalMinted - currentSupply;
+        
+        if (currentSupply > 0) {
+            uint256 totalAge = 0;
+            oldestActive = block.timestamp;
+            newestActive = 0;
+            
+            for (uint256 i = 0; i < currentSupply; i++) {
+                uint256 tokenId = tokenByIndex(i);
+                uint256 mintTime = receiptMintTime[tokenId];
+                
+                if (mintTime > 0) {
+                    uint256 age = block.timestamp - mintTime;
+                    totalAge += age;
+                    
+                    if (mintTime < oldestActive) {
+                        oldestActive = mintTime;
+                    }
+                    if (mintTime > newestActive) {
+                        newestActive = mintTime;
+                    }
+                }
+            }
+            
+            averageAge = currentSupply > 0 ? totalAge / currentSupply : 0;
+            oldestActive = oldestActive < block.timestamp ? 
+                block.timestamp - oldestActive : 0;
+            newestActive = newestActive > 0 ? 
+                block.timestamp - newestActive : 0;
+        }
     }
     
     /// @dev Register my contract on Sonic FeeM
