@@ -2135,11 +2135,12 @@ contract SwapPoolNative is
         uint256 totalSwapVolume
     ) {
         uint256[] memory userReceiptTokens = userStakes[user];
-        uint256[] memory activeReceiptTokens = new uint256[](userReceiptTokens.length);
+        uint256 userReceiptLength = userReceiptTokens.length; // Gas optimization: cache array length
+        uint256[] memory activeReceiptTokens = new uint256[](userReceiptLength);
         uint256 activeCount = 0;
         uint256 totalStakingTime = 0;
         
-        for (uint256 i = 0; i < userReceiptTokens.length; i++) {
+        for (uint256 i = 0; i < userReceiptLength; i++) {
             if (stakeInfos[userReceiptTokens[i]].active) {
                 activeReceiptTokens[activeCount] = userReceiptTokens[i];
                 totalStakingTime += block.timestamp - stakeInfos[userReceiptTokens[i]].stakedAt;
@@ -2776,6 +2777,53 @@ contract SwapPoolNative is
     }
 
     function _authorizeUpgrade(address) internal override onlyOwner {}
+
+    /**
+     * @dev Comprehensive contract health check for monitoring and debugging
+     * @dev Only callable by owner for security
+     */
+    function getContractHealthCheck() external view onlyOwner returns (
+        bool poolHealthy,
+        bool rewardSystemHealthy,
+        bool storageConsistent,
+        uint256 contractBalance,
+        uint256 totalNFTsHeld,
+        string memory statusMessage
+    ) {
+        // Check pool health
+        poolHealthy = poolTokens.length >= MIN_POOL_SIZE && !paused();
+        
+        // Check reward system health
+        rewardSystemHealthy = totalStaked == 0 || rewardPerTokenStored > 0;
+        
+        // Check storage consistency
+        uint256 actualNFTBalance = IERC721(nftCollection).balanceOf(address(this));
+        storageConsistent = actualNFTBalance >= poolTokens.length;
+        
+        // Get contract metrics
+        contractBalance = address(this).balance;
+        totalNFTsHeld = actualNFTBalance;
+        
+        // Generate status message
+        if (!poolHealthy) {
+            statusMessage = "Pool unhealthy: insufficient liquidity or paused";
+        } else if (!rewardSystemHealthy) {
+            statusMessage = "Reward system unhealthy: staking without rewards";
+        } else if (!storageConsistent) {
+            statusMessage = "Storage inconsistent: NFT count mismatch";
+        } else {
+            statusMessage = "All systems healthy";
+        }
+        
+        return (
+            poolHealthy,
+            rewardSystemHealthy,
+            storageConsistent,
+            contractBalance,
+            totalNFTsHeld,
+            statusMessage
+        );
+    }
 
     // Only allow ETH for swap fees - reject other ETH deposits
     receive() external payable {

@@ -1823,9 +1823,10 @@ contract StakeReceipt is ERC721Enumerable, Ownable {
         require(originalTokenIds.length > 0, "Empty array");
         require(originalTokenIds.length <= 10, "Too many tokens"); // Gas protection
         
-        uint256[] memory receiptTokenIds = new uint256[](originalTokenIds.length);
+        uint256 originalTokenIdsLength = originalTokenIds.length; // Gas optimization: cache array length
+        uint256[] memory receiptTokenIds = new uint256[](originalTokenIdsLength);
         
-        for (uint256 i = 0; i < originalTokenIds.length; i++) {
+        for (uint256 i = 0; i < originalTokenIdsLength; i++) {
             uint256 receiptTokenId = _currentReceiptId;
             _currentReceiptId++;
             
@@ -1846,7 +1847,8 @@ contract StakeReceipt is ERC721Enumerable, Ownable {
         require(receiptTokenIds.length > 0, "Empty array");
         require(receiptTokenIds.length <= 10, "Too many tokens"); // Gas protection
         
-        for (uint256 i = 0; i < receiptTokenIds.length; i++) {
+        uint256 receiptTokenIdsLength = receiptTokenIds.length; // Gas optimization: cache array length
+        for (uint256 i = 0; i < receiptTokenIdsLength; i++) {
             delete receiptToOriginalToken[receiptTokenIds[i]];
             // Keep timestamp data for historical analytics
             // delete receiptMintTime[receiptTokenIds[i]];
