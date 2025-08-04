@@ -1484,6 +1484,45 @@ contract StonerFeePool is
         emit Unstaked(msg.sender, tokenId);
     }
 
+    function unstakeMultiple(uint256[] calldata tokenIds) external whenNotPaused nonReentrant {
+        require(tokenIds.length > 0, "Empty array");
+        require(tokenIds.length <= 10, "Too many tokens"); // Gas protection
+        
+        // Verify ownership of all tokens first
+        for (uint256 i = 0; i < tokenIds.length; i++) {
+            if (stakerOf[tokenIds[i]] != msg.sender) revert NotYourToken();
+        }
+        
+        // Update rewards once for the user
+        _updateReward(msg.sender);
+        
+        // 🎯 AUTO-CLAIM ALL REWARDS
+        uint256 reward = rewards[msg.sender];
+        if (reward > 0) {
+            rewards[msg.sender] = 0;
+            totalRewardsClaimed += reward;
+            
+            (bool success, ) = payable(msg.sender).call{value: reward}("");
+            require(success, "Transfer failed");
+            
+            emit RewardClaimed(msg.sender, reward);
+        }
+        
+        // Process all unstakes
+        for (uint256 i = 0; i < tokenIds.length; i++) {
+            uint256 tokenId = tokenIds[i];
+            
+            receiptToken.burn(tokenId);
+            delete stakerOf[tokenId];
+            isStaked[tokenId] = false;
+            _removeFromArray(stakedTokens[msg.sender], tokenId);
+            totalStaked--;
+            
+            stonerNFT.transferFrom(address(this), msg.sender, tokenId);
+            emit Unstaked(msg.sender, tokenId);
+        }
+    }
+
     function notifyNativeReward() public payable {
         if (msg.value == 0) revert ZeroETH();
         if (totalStaked == 0) revert NoStakers();
