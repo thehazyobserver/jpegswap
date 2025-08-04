@@ -1377,6 +1377,9 @@ interface IERC721 is IERC165 {
 }
 
 // File: contracts/SwapPoolNative.sol
+
+pragma solidity ^0.8.19;
+
 interface IReceiptContract {
     function mint(address to, uint256 originalTokenId) external returns (uint256 receiptTokenId);
     function burn(uint256 receiptTokenId) external;
