@@ -1799,6 +1799,35 @@ contract StakeReceipt is ERC721Enumerable, Ownable {
         _burn(receiptTokenId);
     }
 
+    // 🎯 BATCH OPERATIONS FOR BETTER UI/UX
+    function batchMint(address to, uint256[] calldata originalTokenIds) external onlyPool returns (uint256[] memory) {
+        require(originalTokenIds.length > 0, "Empty array");
+        require(originalTokenIds.length <= 10, "Too many tokens"); // Gas protection
+        
+        uint256[] memory receiptTokenIds = new uint256[](originalTokenIds.length);
+        
+        for (uint256 i = 0; i < originalTokenIds.length; i++) {
+            uint256 receiptTokenId = _currentReceiptId;
+            _currentReceiptId++;
+            
+            receiptToOriginalToken[receiptTokenId] = originalTokenIds[i];
+            _mint(to, receiptTokenId);
+            receiptTokenIds[i] = receiptTokenId;
+        }
+        
+        return receiptTokenIds;
+    }
+
+    function batchBurn(uint256[] calldata receiptTokenIds) external onlyPool {
+        require(receiptTokenIds.length > 0, "Empty array");
+        require(receiptTokenIds.length <= 10, "Too many tokens"); // Gas protection
+        
+        for (uint256 i = 0; i < receiptTokenIds.length; i++) {
+            delete receiptToOriginalToken[receiptTokenIds[i]];
+            _burn(receiptTokenIds[i]);
+        }
+    }
+
     function getOriginalTokenId(uint256 receiptTokenId) external view returns (uint256) {
         require(_exists(receiptTokenId), "Receipt does not exist");
         return receiptToOriginalToken[receiptTokenId];
@@ -1806,6 +1835,82 @@ contract StakeReceipt is ERC721Enumerable, Ownable {
 
     function validateReceipt(uint256 receiptTokenId, address expectedPool) external view returns (bool) {
         return _exists(receiptTokenId) && pool == expectedPool;
+    }
+
+    // 📊 ENHANCED QUERY FUNCTIONS FOR UI
+    function getUserReceipts(address user) external view returns (uint256[] memory receipts, uint256[] memory originalTokens) {
+        uint256 balance = balanceOf(user);
+        receipts = new uint256[](balance);
+        originalTokens = new uint256[](balance);
+        
+        for (uint256 i = 0; i < balance; i++) {
+            uint256 receiptId = tokenOfOwnerByIndex(user, i);
+            receipts[i] = receiptId;
+            originalTokens[i] = receiptToOriginalToken[receiptId];
+        }
+    }
+
+    function getReceiptDetails(uint256 receiptTokenId) external view returns (
+        bool exists,
+        address owner,
+        uint256 originalTokenId,
+        string memory uri
+    ) {
+        exists = _exists(receiptTokenId);
+        if (exists) {
+            owner = ownerOf(receiptTokenId);
+            originalTokenId = receiptToOriginalToken[receiptTokenId];
+            uri = tokenURI(receiptTokenId);
+        }
+    }
+
+    function getMultipleReceiptDetails(uint256[] calldata receiptTokenIds) external view returns (
+        bool[] memory exists,
+        address[] memory owners,
+        uint256[] memory originalTokenIds
+    ) {
+        uint256 length = receiptTokenIds.length;
+        exists = new bool[](length);
+        owners = new address[](length);
+        originalTokenIds = new uint256[](length);
+        
+        for (uint256 i = 0; i < length; i++) {
+            uint256 receiptId = receiptTokenIds[i];
+            exists[i] = _exists(receiptId);
+            if (exists[i]) {
+                owners[i] = ownerOf(receiptId);
+                originalTokenIds[i] = receiptToOriginalToken[receiptId];
+            }
+        }
+    }
+
+    // 📈 COLLECTION STATISTICS FOR DASHBOARD
+    function getCollectionStats() external view returns (
+        uint256 totalReceipts,
+        uint256 totalHolders,
+        address poolAddress,
+        string memory collectionBaseURI
+    ) {
+        totalReceipts = totalSupply();
+        
+        // Count unique holders efficiently
+        uint256 holderCount = 0;
+        uint256 maxCheck = totalReceipts > 100 ? 100 : totalReceipts; // Limit for gas efficiency
+        
+        for (uint256 i = 0; i < maxCheck; i++) {
+            address tokenOwner = ownerOf(tokenByIndex(i));
+            if (balanceOf(tokenOwner) > 0) {
+                holderCount++;
+            }
+        }
+        
+        totalHolders = holderCount;
+        poolAddress = pool;
+        collectionBaseURI = baseURI;
+    }
+
+    function isReceiptTransferable() external pure returns (bool) {
+        return false; // Always non-transferable for UI clarity
     }
 
     function setBaseURI(string memory uri) external onlyOwner {
