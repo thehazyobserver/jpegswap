@@ -1191,9 +1191,7 @@ abstract contract UUPSUpgradeable is Initializable, IERC1822ProxiableUpgradeable
      * function _authorizeUpgrade(address) internal override onlyOwner {}
      * ```
      */
-    function _authorizeUpgrade(address newImplementation) internal override {
-        _checkOwner();
-    }
+    function _authorizeUpgrade(address newImplementation) internal virtual;
 
     /**
      * @dev This empty reserved space is put in place to allow future versions to add new
@@ -1951,8 +1949,8 @@ contract SwapPoolNative is
         uint256 count = 0;
         
         // Get user's active stakes up to batch size
-        for (uint256 i = 0; i < _userStakeCount[user] && count < batchSize; i++) {
-            uint256 receiptId = _userStakes[user][i];
+        for (uint256 i = 0; i < userStakes[user].length && count < batchSize; i++) {
+            uint256 receiptId = userStakes[user][i];
             if (receiptId != 0 && isStakeActive(receiptId)) {
                 activeStakes[count] = receiptId;
                 count++;
@@ -1994,8 +1992,8 @@ contract SwapPoolNative is
         uint256 count = 0;
         
         // Get user's active stakes up to batch size
-        for (uint256 i = 0; i < _userStakeCount[user] && count < batchSize; i++) {
-            uint256 receiptId = _userStakes[user][i];
+        for (uint256 i = 0; i < userStakes[user].length && count < batchSize; i++) {
+            uint256 receiptId = userStakes[user][i];
             if (receiptId != 0 && isStakeActive(receiptId)) {
                 activeStakes[count] = receiptId;
                 count++;
@@ -2018,8 +2016,8 @@ contract SwapPoolNative is
         uint256 activeCount = 0;
         
         // Count active stakes
-        for (uint256 i = 0; i < _userStakeCount[user]; i++) {
-            uint256 receiptId = _userStakes[user][i];
+        for (uint256 i = 0; i < userStakes[user].length; i++) {
+            uint256 receiptId = userStakes[user][i];
             if (receiptId != 0 && isStakeActive(receiptId)) {
                 activeCount++;
             }
@@ -2320,6 +2318,15 @@ contract SwapPoolNative is
         }
     }
 
+    /**
+     * @dev Check if a stake is active
+     * @param receiptTokenId The receipt token ID to check
+     * @return True if the stake is active
+     */
+    function isStakeActive(uint256 receiptTokenId) public view returns (bool) {
+        return stakeInfos[receiptTokenId].active;
+    }
+
     function getReceiptForToken(uint256 tokenId) external view returns (uint256) {
         return originalToReceiptToken[tokenId];
     }
@@ -2355,7 +2362,7 @@ contract SwapPoolNative is
      * @dev Get user's active stake count and receipt tokens
      * @param user User address
      */
-    function getUserActiveStakeDetails(address user) external view returns (
+    function getUserActiveStakeDetails(address user) public view returns (
         uint256 activeCount,
         uint256[] memory activeReceiptTokenIds,
         uint256[] memory originalTokenIds,
@@ -2476,10 +2483,6 @@ contract SwapPoolNative is
             (totalLiquidity * 10000) / totalTokensInContract : 0; // Basis points
         stakingRatio = totalTokensInContract > 0 ? 
             (totalStaked * 10000) / totalTokensInContract : 0; // Basis points
-        
-        // Calculate average staking time from active stakes
-        uint256 totalStakingTime = 0;
-        uint256 activeStakeCount = 0;
         
         // Note: In production, you'd want to track this more efficiently
         // This is a simplified calculation for demonstration
@@ -2780,6 +2783,11 @@ contract SwapPoolNative is
         }
         return (true, 0);
     }
+
+    /**
+     * @dev Authorize contract upgrades - only owner can upgrade
+     */
+    function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}
 
     /**
      * @dev Comprehensive contract health check for monitoring and debugging
