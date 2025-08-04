@@ -1191,9 +1191,7 @@ abstract contract UUPSUpgradeable is Initializable, IERC1822ProxiableUpgradeable
      * function _authorizeUpgrade(address) internal override onlyOwner {}
      * ```
      */
-    function _authorizeUpgrade(address newImplementation) internal override {
-        require(owner() == _msgSender(), "Ownable: caller is not the owner");
-    }
+    function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}
 
     /**
      * @dev This empty reserved space is put in place to allow future versions to add new
