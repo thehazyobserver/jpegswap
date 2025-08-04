@@ -1102,8 +1102,9 @@ contract SwapPoolFactoryNative is Ownable, ReentrancyGuard {
         require(pools.length <= 50, "Too many pools"); // Gas limit protection
         
         uint256 totalClaimed = 0;
+        uint256 poolsLength = pools.length; // Gas optimization: cache array length
         
-        for (uint256 i = 0; i < pools.length; i++) {
+        for (uint256 i = 0; i < poolsLength; i++) {
             // Verify it's a valid pool from this factory
             try ISwapPoolRewards(pools[i]).nftCollection() returns (address collection) {
                 require(collectionToPool[collection] == pools[i], "Invalid pool");
@@ -1135,8 +1136,9 @@ contract SwapPoolFactoryNative is Ownable, ReentrancyGuard {
         require(allPools.length <= 50, "Too many pools - use paginated version"); // Gas limit protection
         
         uint256 totalClaimed = 0;
+        uint256 allPoolsLength = allPools.length; // Gas optimization: cache array length
         
-        for (uint256 i = 0; i < allPools.length; i++) {
+        for (uint256 i = 0; i < allPoolsLength; i++) {
             // Verify it's a valid pool from this factory
             try ISwapPoolRewards(allPools[i]).nftCollection() returns (address collection) {
                 require(collectionToPool[collection] == allPools[i], "Invalid pool");
@@ -1873,7 +1875,8 @@ contract SwapPoolFactoryNative is Ownable, ReentrancyGuard {
             return (canExecute, totalRewards, estimatedGas, validPoolCount, poolValidity, statusMessage);
         }
         
-        for (uint256 i = 0; i < targetPools.length; i++) {
+        uint256 targetPoolsLength = targetPools.length; // Gas optimization: cache array length
+        for (uint256 i = 0; i < targetPoolsLength; i++) {
             bool isValid = false;
             
             try ISwapPoolRewards(targetPools[i]).nftCollection() returns (address collection) {

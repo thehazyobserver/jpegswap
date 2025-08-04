@@ -1656,15 +1656,16 @@ contract SwapPoolNative is
         whenNotPaused 
         updateReward(msg.sender)
     {
-        require(receiptTokenIds.length > 0, "Empty array");
-        require(receiptTokenIds.length <= maxBatchSize, "Batch size exceeds limit"); // Configurable gas limit protection
+        uint256 batchLength = receiptTokenIds.length; // Gas optimization: cache array length
+        require(batchLength > 0, "Empty array");
+        require(batchLength <= maxBatchSize, "Batch size exceeds limit"); // Configurable gas limit protection
         
         // Initialize batch tracking
         _inBatchOperation = true;
         delete _batchReceiptTokens;
         delete _batchReturnedTokens;
         
-        for (uint256 i = 0; i < receiptTokenIds.length; i++) {
+        for (uint256 i = 0; i < batchLength; i++) {
             _unstakeNFTInternal(receiptTokenIds[i]);
         }
         
@@ -1686,13 +1687,14 @@ contract SwapPoolNative is
         updateReward(msg.sender)
     {
         uint256[] memory userReceiptTokens = userStakes[msg.sender];
-        require(userReceiptTokens.length > 0, "No stakes found");
+        uint256 userStakesLength = userReceiptTokens.length; // Gas optimization: cache array length
+        require(userStakesLength > 0, "No stakes found");
         
         // Create array of active receipt tokens
-        uint256[] memory activeReceipts = new uint256[](userReceiptTokens.length);
+        uint256[] memory activeReceipts = new uint256[](userStakesLength);
         uint256 activeCount = 0;
         
-        for (uint256 i = 0; i < userReceiptTokens.length; i++) {
+        for (uint256 i = 0; i < userStakesLength; i++) {
             if (stakeInfos[userReceiptTokens[i]].active) {
                 activeReceipts[activeCount] = userReceiptTokens[i];
                 activeCount++;
@@ -1883,7 +1885,8 @@ contract SwapPoolNative is
      */
     function getUserActiveStakeCount(address user) public view returns (uint256 count) {
         uint256[] memory stakes = userStakes[user];
-        for (uint256 i = 0; i < stakes.length; i++) {
+        uint256 stakesLength = stakes.length; // Gas optimization: cache array length
+        for (uint256 i = 0; i < stakesLength; i++) {
             if (stakeInfos[stakes[i]].active) {
                 count++;
             }
@@ -1895,9 +1898,10 @@ contract SwapPoolNative is
      */
     function _removeFromUserStakes(address user, uint256 receiptTokenId) internal {
         uint256[] storage stakes = userStakes[user];
-        for (uint256 i = 0; i < stakes.length; i++) {
+        uint256 stakesLength = stakes.length; // Gas optimization: cache array length
+        for (uint256 i = 0; i < stakesLength; i++) {
             if (stakes[i] == receiptTokenId) {
-                stakes[i] = stakes[stakes.length - 1];
+                stakes[i] = stakes[stakesLength - 1];
                 stakes.pop();
                 break;
             }
@@ -2042,7 +2046,8 @@ contract SwapPoolNative is
     }
 
     function emergencyWithdrawBatch(uint256[] calldata tokenIds) external onlyOwner {
-        for (uint256 i = 0; i < tokenIds.length; i++) {
+        uint256 tokenIdsLength = tokenIds.length; // Gas optimization: cache array length
+        for (uint256 i = 0; i < tokenIdsLength; i++) {
             IERC721(nftCollection).transferFrom(address(this), owner(), tokenIds[i]);
         }
     }

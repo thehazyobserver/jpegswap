@@ -1767,6 +1767,7 @@ contract StakeReceipt is ERC721Enumerable, Ownable {
 
     event BaseURIUpdated(string newBaseURI);
     event PoolSet(address pool);
+    event ReceiptBurned(address indexed user, uint256 indexed receiptTokenId, uint256 indexed originalTokenId);
 
     error OnlyPool();
     error NonTransferable();
@@ -1805,10 +1806,15 @@ contract StakeReceipt is ERC721Enumerable, Ownable {
     }
 
     function burn(uint256 receiptTokenId) external onlyPool {
+        address owner = ownerOf(receiptTokenId);
+        uint256 originalTokenId = receiptToOriginalToken[receiptTokenId];
+        
         delete receiptToOriginalToken[receiptTokenId];
         // Keep timestamp data for historical analytics
         // delete receiptMintTime[receiptTokenId];
         // delete receiptMinter[receiptTokenId];
+        
+        emit ReceiptBurned(owner, receiptTokenId, originalTokenId);
         _burn(receiptTokenId);
     }
 

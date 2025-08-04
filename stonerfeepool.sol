@@ -1418,11 +1418,11 @@ contract StonerFeePool is
     mapping(address => uint256) public rewards;
     mapping(address => uint256) public userRewardPerTokenPaid;
 
-    event Staked(address indexed user, uint256 tokenId);
-    event Unstaked(address indexed user, uint256 returnedTokenId);
+    event Staked(address indexed user, uint256 indexed tokenId);
+    event Unstaked(address indexed user, uint256 indexed returnedTokenId);
     event RewardReceived(address indexed sender, uint256 amount);
     event RewardClaimed(address indexed user, uint256 amount);
-    event EmergencyUnstake(uint256 tokenId, address to);
+    event EmergencyUnstake(uint256 indexed tokenId, address indexed to);
 
     error NotStaked();
     error AlreadyStaked();
@@ -1473,11 +1473,12 @@ contract StonerFeePool is
     }
 
     function stakeMultiple(uint256[] calldata tokenIds) external whenNotPaused {
-        require(tokenIds.length > 0, "Empty array");
-        require(tokenIds.length <= 10, "Too many tokens"); // Gas protection
+        uint256 tokenIdsLength = tokenIds.length; // Gas optimization: cache array length
+        require(tokenIdsLength > 0, "Empty array");
+        require(tokenIdsLength <= 10, "Too many tokens"); // Gas protection
         
         // Verify all tokens are not already staked and user owns them
-        for (uint256 i = 0; i < tokenIds.length; i++) {
+        for (uint256 i = 0; i < tokenIdsLength; i++) {
             if (isStaked[tokenIds[i]]) revert AlreadyStaked();
             if (stonerNFT.ownerOf(tokenIds[i]) != msg.sender) revert NotYourToken();
         }
@@ -1486,7 +1487,7 @@ contract StonerFeePool is
         _updateReward(msg.sender);
         
         // Process all stakes
-        for (uint256 i = 0; i < tokenIds.length; i++) {
+        for (uint256 i = 0; i < tokenIdsLength; i++) {
             uint256 tokenId = tokenIds[i];
             
             stonerNFT.transferFrom(msg.sender, address(this), tokenId);
@@ -1548,7 +1549,8 @@ contract StonerFeePool is
         require(tokenIds.length <= 10, "Too many tokens"); // Gas protection
         
         // Verify ownership of all tokens first
-        for (uint256 i = 0; i < tokenIds.length; i++) {
+        uint256 tokenIdsLength = tokenIds.length; // Gas optimization: cache array length
+        for (uint256 i = 0; i < tokenIdsLength; i++) {
             if (stakerOf[tokenIds[i]] != msg.sender) revert NotYourToken();
         }
         
@@ -1568,7 +1570,7 @@ contract StonerFeePool is
         }
         
         // Process all unstakes
-        for (uint256 i = 0; i < tokenIds.length; i++) {
+        for (uint256 i = 0; i < tokenIdsLength; i++) {
             uint256 tokenId = tokenIds[i];
             
             receiptToken.burn(tokenId);
@@ -1750,7 +1752,8 @@ contract StonerFeePool is
         // 🕒 CALCULATE REAL AVERAGE STAKING TIME
         if (stakedCount > 0) {
             uint256 totalStakingTime = 0;
-            for (uint256 i = 0; i < stakedTokenIds.length; i++) {
+            uint256 stakedTokenIdsLength = stakedTokenIds.length; // Gas optimization: cache array length
+            for (uint256 i = 0; i < stakedTokenIdsLength; i++) {
                 uint256 tokenId = stakedTokenIds[i];
                 if (stakeInfos[tokenId].active) {
                     totalStakingTime += block.timestamp - stakeInfos[tokenId].stakedAt;
@@ -1965,9 +1968,11 @@ contract StonerFeePool is
         // 🕒 CALCULATE REAL STAKING ANALYTICS FROM TIMESTAMPS
         uint256 totalStakingTime = 0;
         uint256 activeStakes = 0;
+        uint256[] memory userStakedTokens = stakedTokens[user];
+        uint256 userStakedLength = userStakedTokens.length; // Gas optimization: cache array length
         
-        for (uint256 i = 0; i < stakedTokens[user].length; i++) {
-            uint256 tokenId = stakedTokens[user][i];
+        for (uint256 i = 0; i < userStakedLength; i++) {
+            uint256 tokenId = userStakedTokens[i];
             if (stakeInfos[tokenId].active) {
                 totalStakingTime += block.timestamp - stakeInfos[tokenId].stakedAt;
                 activeStakes++;
@@ -2053,7 +2058,8 @@ contract StonerFeePool is
         }
         
         bool allValid = true;
-        for (uint256 i = 0; i < tokenIds.length; i++) {
+        uint256 tokenIdsLength = tokenIds.length; // Gas optimization: cache array length
+        for (uint256 i = 0; i < tokenIdsLength; i++) {
             bool valid = isStaked[tokenIds[i]] && stakerOf[tokenIds[i]] == msg.sender;
             validTokens[i] = valid;
             if (!valid) allValid = false;
