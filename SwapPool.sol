@@ -1,4 +1,3 @@
-
 // File: @openzeppelin/contracts-upgradeable@4.8.3/utils/AddressUpgradeable.sol
 
 
@@ -1661,7 +1660,7 @@ contract SwapPoolNative is
         delete _batchReturnedTokens;
     }
 
-    // 🎯 INTERNAL UNSTAKING LOGIC WITH BATCH OPERATION SUPPORT
+    // 🎯 INTERNAL UNSTAKING LOGIC WITH BATCH OPERATION SUPPORT + AUTO-CLAIM
     function _unstakeNFTInternal(uint256 receiptTokenId) internal {
         // Verify receipt ownership
         if (IReceiptContract(receiptContract).ownerOf(receiptTokenId) != msg.sender) revert NotReceiptOwner();
@@ -1670,6 +1669,14 @@ contract SwapPoolNative is
         if (!stakeInfo.active) revert TokenNotStaked();
         
         uint256 originalTokenId = receiptToOriginalToken[receiptTokenId];
+        
+        // 🎯 AUTO-CLAIM REWARDS BEFORE UNSTAKING
+        uint256 rewardsToSend = pendingRewards[msg.sender];
+        if (rewardsToSend > 0) {
+            pendingRewards[msg.sender] = 0;
+            payable(msg.sender).sendValue(rewardsToSend);
+            emit RewardsClaimed(msg.sender, rewardsToSend);
+        }
         
         // Mark stake as inactive
         stakeInfo.active = false;
@@ -1712,8 +1719,23 @@ contract SwapPoolNative is
         }
     }
 
-    // 💸 COMPLETE REWARD CLAIMING
+    // 💸 UPDATED REWARD CLAIMING (now optional since auto-claim on unstake)
     function claimRewards() 
+        external 
+        nonReentrant 
+        updateReward(msg.sender)
+    {
+        uint256 reward = pendingRewards[msg.sender];
+        if (reward == 0) revert NoRewardsToClaim();
+        
+        pendingRewards[msg.sender] = 0;
+        payable(msg.sender).sendValue(reward);
+
+        emit RewardsClaimed(msg.sender, reward);
+    }
+
+    // 🎯 NEW: Emergency claim without unstaking (if users want rewards but keep staking)
+    function claimRewardsOnly() 
         external 
         nonReentrant 
         updateReward(msg.sender)
