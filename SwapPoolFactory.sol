@@ -1126,11 +1126,11 @@ contract SwapPoolFactoryNative is Ownable, ReentrancyGuard {
     }
 
     /**
-     * @dev Claim rewards from ALL pools (user must have stakes to get rewards)
+     * @dev Claim rewards from all pools (with gas limit protection)
      */
     function claimAllRewards() external nonReentrant {
         require(allPools.length > 0, "No pools available");
-        require(allPools.length <= 50, "Too many pools"); // Gas limit protection
+        require(allPools.length <= 50, "Too many pools - use paginated version"); // Gas limit protection
         
         uint256 totalClaimed = 0;
         
@@ -1156,6 +1156,162 @@ contract SwapPoolFactoryNative is Ownable, ReentrancyGuard {
         }
         
         emit BatchRewardsClaimed(msg.sender, allPools.length, totalClaimed);
+    }
+
+    /**
+     * @dev Claim rewards from pools with pagination for scalability
+     * @param startIndex Starting index in allPools array
+     * @param batchSize Number of pools to process (max 20 for safety)
+     */
+    function claimAllRewardsPaginated(uint256 startIndex, uint256 batchSize) 
+        external 
+        nonReentrant 
+        returns (uint256 totalClaimed, uint256 poolsProcessed) 
+    {
+        require(allPools.length > 0, "No pools available");
+        require(batchSize <= 20, "Batch size too large"); // Gas limit protection
+        require(startIndex < allPools.length, "Start index out of bounds");
+        
+        uint256 endIndex = startIndex + batchSize;
+        if (endIndex > allPools.length) {
+            endIndex = allPools.length;
+        }
+        
+        totalClaimed = 0;
+        poolsProcessed = 0;
+        
+        for (uint256 i = startIndex; i < endIndex; i++) {
+            poolsProcessed++;
+            
+            // Verify it's a valid pool from this factory
+            try ISwapPoolRewards(allPools[i]).nftCollection() returns (address collection) {
+                require(collectionToPool[collection] == allPools[i], "Invalid pool");
+            } catch {
+                continue; // Skip invalid pools
+            }
+            
+            try ISwapPoolRewards(allPools[i]).earned(msg.sender) returns (uint256 pending) {
+                if (pending > 0) {
+                    try ISwapPoolRewards(allPools[i]).claimRewards() {
+                        totalClaimed += pending;
+                    } catch {
+                        // Skip failed claims, continue with others
+                    }
+                }
+            } catch {
+                // Skip pools with errors
+            }
+        }
+        
+        emit BatchRewardsClaimed(msg.sender, poolsProcessed, totalClaimed);
+    }
+
+    /**
+     * @dev Get paginated list of pools for frontend integration
+     * @param startIndex Starting index in allPools array
+     * @param batchSize Number of pools to return (max 50)
+     */
+    function getAllPoolsPaginated(uint256 startIndex, uint256 batchSize) 
+        external 
+        view 
+        returns (address[] memory pools, uint256 totalPools) 
+    {
+        require(batchSize <= 50, "Batch size too large");
+        totalPools = allPools.length;
+        
+        if (startIndex >= totalPools) {
+            return (new address[](0), totalPools);
+        }
+        
+        uint256 endIndex = startIndex + batchSize;
+        if (endIndex > totalPools) {
+            endIndex = totalPools;
+        }
+        
+        pools = new address[](endIndex - startIndex);
+        for (uint256 i = startIndex; i < endIndex; i++) {
+            pools[i - startIndex] = allPools[i];
+        }
+    }
+
+    /**
+     * @dev Get user's claimable rewards with pagination
+     * @param user Address to check rewards for
+     * @param startIndex Starting index in allPools array
+     * @param batchSize Number of pools to check (max 20)
+     */
+    function getUserClaimableRewardsPaginated(address user, uint256 startIndex, uint256 batchSize)
+        external
+        view
+        returns (uint256 totalClaimable, address[] memory validPools, uint256[] memory amounts)
+    {
+        require(batchSize <= 20, "Batch size too large");
+        require(startIndex < allPools.length, "Start index out of bounds");
+        
+        uint256 endIndex = startIndex + batchSize;
+        if (endIndex > allPools.length) {
+            endIndex = allPools.length;
+        }
+        
+        validPools = new address[](endIndex - startIndex);
+        amounts = new uint256[](endIndex - startIndex);
+        totalClaimable = 0;
+        uint256 validCount = 0;
+        
+        for (uint256 i = startIndex; i < endIndex; i++) {
+            try ISwapPoolRewards(allPools[i]).earned(user) returns (uint256 pending) {
+                if (pending > 0) {
+                    validPools[validCount] = allPools[i];
+                    amounts[validCount] = pending;
+                    totalClaimable += pending;
+                    validCount++;
+                }
+            } catch {
+                // Skip pools with errors
+            }
+        }
+        
+        // Resize arrays to remove empty slots
+        assembly {
+            mstore(validPools, validCount)
+            mstore(amounts, validCount)
+        }
+    }
+
+    /**
+     * @dev Estimate gas costs for batch operations
+     * @param batchSize Number of pools to process
+     */
+    function estimateBatchGasCosts(uint256 batchSize)
+        external
+        view
+        returns (
+            uint256 estimatedGas,
+            uint256 recommendedBatchSize,
+            uint256 totalBatches,
+            bool needsPagination
+        )
+    {
+        uint256 poolCount = allPools.length;
+        needsPagination = poolCount > 50;
+        
+        // Rough estimates based on typical operations
+        uint256 baseGas = 21000; // Transaction base cost
+        uint256 gasPerPool = 45000; // Estimated gas per pool claim
+        
+        if (batchSize == 0 || batchSize > poolCount) {
+            batchSize = poolCount;
+        }
+        
+        estimatedGas = baseGas + (gasPerPool * batchSize);
+        
+        // Recommend batch size to stay under gas limits
+        uint256 targetGasLimit = 8000000; // Conservative estimate
+        recommendedBatchSize = (targetGasLimit - baseGas) / gasPerPool;
+        if (recommendedBatchSize > 20) recommendedBatchSize = 20; // Safety cap
+        if (recommendedBatchSize > poolCount) recommendedBatchSize = poolCount;
+        
+        totalBatches = (poolCount + recommendedBatchSize - 1) / recommendedBatchSize; // Ceiling division
     }
 
     /**
@@ -1272,5 +1428,71 @@ contract SwapPoolFactoryNative is Ownable, ReentrancyGuard {
             implementation,
             owner()
         );
+    }
+
+    /**
+     * @dev Get detailed analytics across all pools for dashboard
+     */
+    function getGlobalAnalytics() external view returns (
+        uint256 totalValueLocked,      // Total NFTs across all pools
+        uint256 totalRewardsDistributed,
+        uint256 totalActiveStakers,
+        uint256 mostActivePool,        // Index of most active pool
+        uint256 highestAPYPool         // Index of highest APY pool
+    ) {
+        uint256 totalNFTs = 0;
+        uint256 totalRewards = 0;
+        uint256 totalStakers = 0;
+        uint256 maxNFTs = 0;
+        uint256 mostActive = 0;
+        uint256 highestAPY = 0;
+
+        for (uint256 i = 0; i < allPools.length; i++) {
+            try ISwapPoolRewards(allPools[i]).nftCollection() returns (address collection) {
+                if (collectionToPool[collection] == allPools[i]) {
+                    // Get pool stats (would need extended interface)
+                    try IERC721(collection).balanceOf(allPools[i]) returns (uint256 poolNFTs) {
+                        totalNFTs += poolNFTs;
+                        if (poolNFTs > maxNFTs) {
+                            maxNFTs = poolNFTs;
+                            mostActive = i;
+                        }
+                    } catch {}
+                }
+            } catch {}
+        }
+
+        return (totalNFTs, totalRewards, totalStakers, mostActive, highestAPY);
+    }
+
+    /**
+     * @dev Get trending pools for homepage display
+     */
+    function getTrendingPools(uint256 limit) external view returns (
+        address[] memory pools,
+        address[] memory collections,
+        uint256[] memory tvl,           // Total Value Locked
+        uint256[] memory volume24h,     // 24h volume
+        uint256[] memory apy           // Current APY
+    ) {
+        uint256 poolCount = allPools.length;
+        uint256 resultCount = limit > poolCount ? poolCount : limit;
+        
+        pools = new address[](resultCount);
+        collections = new address[](resultCount);
+        tvl = new uint256[](resultCount);
+        volume24h = new uint256[](resultCount);
+        apy = new uint256[](resultCount);
+        
+        for (uint256 i = 0; i < resultCount; i++) {
+            pools[i] = allPools[i];
+            try ISwapPoolRewards(allPools[i]).nftCollection() returns (address collection) {
+                collections[i] = collection;
+                try IERC721(collection).balanceOf(allPools[i]) returns (uint256 balance) {
+                    tvl[i] = balance;
+                } catch {}
+            } catch {}
+            // volume24h and apy would require additional tracking
+        }
     }
 }

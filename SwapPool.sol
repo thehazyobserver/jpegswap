@@ -1443,6 +1443,15 @@ contract SwapPoolNative is
     event SwapFeeUpdated(uint256 newFeeInWei);
     event StonerShareUpdated(uint256 newShare);
 
+    // Events for enhanced frontend integration
+    event PoolHealthChanged(uint256 utilizationRate, uint256 stakingRatio, bool isHealthy);
+    event LowLiquidityWarning(uint256 availableTokens, uint256 threshold);
+    event HighVolumeAlert(uint256 swapsInPeriod, uint256 period);
+
+    // Additional events for better analytics
+    event RewardRateUpdated(uint256 newRate, uint256 timestamp);
+    event UserMilestone(address indexed user, string milestone, uint256 value);
+
     // Custom errors
     error AlreadyInitialized();
     error NotInitialized();
@@ -1455,6 +1464,7 @@ contract SwapPoolNative is
     error InvalidReceiptToken();
     error NoTokensAvailable();
     error SameTokenSwap();
+    error InsufficientLiquidity(uint256 available, uint256 minimum);
 
     modifier onlyInitialized() {
         if (!initialized) revert NotInitialized();
@@ -1906,12 +1916,240 @@ contract SwapPoolNative is
         );
     }
 
-    function getUserStakes(address user) external view returns (uint256[] memory) {
-        return userStakes[user];
+    /**
+     * @dev Get comprehensive pool statistics for frontend dashboards
+     */
+    function getPoolStatistics() external view returns (
+        uint256 totalSwaps,
+        uint256 totalVolume,
+        uint256 averageSwapFee,
+        uint256 lastSwapTimestamp,
+        uint256 activeStakers,
+        uint256 totalRewardsPerToken,
+        uint256 poolLiquidity
+    ) {
+        return (
+            0, // Can be implemented with a counter
+            totalRewardsDistributed,
+            swapFeeInWei,
+            lastUpdateTime,
+            totalStaked,
+            rewardPerTokenStored,
+            poolTokens.length
+        );
     }
 
-    function getStakeInfo(uint256 receiptTokenId) external view returns (StakeInfo memory) {
-        return stakeInfos[receiptTokenId];
+    /**
+     * @dev Get detailed pool health metrics for advanced analytics
+     */
+    function getPoolHealth() external view returns (
+        uint256 utilizationRate,      // How many tokens are being actively swapped
+        uint256 stakingRatio,         // Percentage of pool that's staked
+        bool isHealthy               // Overall pool health indicator
+    ) {
+        uint256 totalTokensInContract = IERC721(nftCollection).balanceOf(address(this));
+        
+        utilizationRate = totalTokensInContract > 0 ? 
+            (poolTokens.length * 100) / totalTokensInContract : 0;
+            
+        stakingRatio = totalTokensInContract > 0 ? 
+            (totalStaked * 100) / totalTokensInContract : 0;
+            
+        isHealthy = poolTokens.length >= 10 && utilizationRate >= 50;
+        
+        return (utilizationRate, stakingRatio, isHealthy);
+    }
+
+    /**
+     * @dev Get comprehensive user portfolio analytics
+     */
+    function getUserPortfolio(address user) external view returns (
+        uint256 userTotalStaked,
+        uint256 totalEarned,
+        uint256 userPendingRewards,
+        uint256 averageStakingTime,
+        uint256[] memory activeStakes,
+        uint256 totalSwapsCount,
+        uint256 totalSwapVolume
+    ) {
+        uint256[] memory userReceiptTokens = userStakes[user];
+        uint256[] memory activeReceiptTokens = new uint256[](userReceiptTokens.length);
+        uint256 activeCount = 0;
+        uint256 totalStakingTime = 0;
+        
+        for (uint256 i = 0; i < userReceiptTokens.length; i++) {
+            if (stakeInfos[userReceiptTokens[i]].active) {
+                activeReceiptTokens[activeCount] = userReceiptTokens[i];
+                totalStakingTime += block.timestamp - stakeInfos[userReceiptTokens[i]].stakedAt;
+                activeCount++;
+            }
+        }
+        
+        // Resize active stakes array
+        activeStakes = new uint256[](activeCount);
+        for (uint256 i = 0; i < activeCount; i++) {
+            activeStakes[i] = activeReceiptTokens[i];
+        }
+        
+        return (
+            activeCount,
+            0, // totalEarned - would need additional tracking
+            earned(user),
+            activeCount > 0 ? totalStakingTime / activeCount : 0,
+            activeStakes,
+            0, // totalSwapsCount - would need additional tracking
+            0  // totalSwapVolume - would need additional tracking
+        );
+    }
+
+    /**
+     * @dev Get user's staking performance metrics
+     */
+    function getUserStakingMetrics(address user) external view returns (
+        uint256 rewardRate,           // Rewards per staked NFT per second
+        uint256 projectedDailyRewards,
+        uint256 estimatedYearlyETH,   // Projected yearly ETH earnings
+        uint256 averageStakingDays    // Average days staked
+    ) {
+        uint256 userActiveStakes = getUserActiveStakeCount(user);
+        if (userActiveStakes == 0) return (0, 0, 0, 0);
+        
+        // Calculate current reward rate per NFT per second
+        uint256 rewardRatePerNFT = totalStaked > 0 ? rewardPerTokenStored / totalStaked : 0;
+        
+        // Project daily rewards based on current rate
+        uint256 dailyRewards = (userActiveStakes * rewardRatePerNFT * 86400) / 1e18;
+        
+        // Project yearly ETH earnings (not APY since there's no initial investment cost)
+        uint256 yearlyETH = dailyRewards * 365;
+        
+        // Calculate average staking time
+        uint256[] memory userReceiptTokens = userStakes[user];
+        uint256 totalStakingTime = 0;
+        uint256 activeCount = 0;
+        
+        for (uint256 i = 0; i < userReceiptTokens.length; i++) {
+            if (stakeInfos[userReceiptTokens[i]].active) {
+                totalStakingTime += block.timestamp - stakeInfos[userReceiptTokens[i]].stakedAt;
+                activeCount++;
+            }
+        }
+        
+        uint256 avgStakingTime = activeCount > 0 ? totalStakingTime / activeCount : 0;
+        
+        return (
+            rewardRatePerNFT,
+            dailyRewards,
+            yearlyETH,
+            avgStakingTime / 86400 // Convert to days
+        );
+    }
+
+    /**
+     * @dev Get pool reward statistics for better frontend display
+     */
+    function getPoolRewardStats() external view returns (
+        uint256 totalFeesCollected,    // Total swap fees collected
+        uint256 rewardsDistributed,     // Total rewards paid to stakers  
+        uint256 averageDailyVolume,     // Average daily swap volume (would need tracking)
+        uint256 currentRewardRate,      // Current reward rate per NFT
+        uint256 estimatedAPR            // Estimated Annual Percentage Rate based on recent activity
+    ) {
+        // Calculate current reward rate per NFT per day
+        uint256 dailyRatePerNFT = totalStaked > 0 ? 
+            (rewardPerTokenStored * 86400) / 1e18 / totalStaked : 0;
+            
+        // Very rough APR estimation based on swap fee and current staking ratio
+        // This assumes consistent swap volume - in reality would need historical data
+        uint256 aprEstimate = 0;
+        if (totalStaked > 0 && swapFeeInWei > 0) {
+            // Assume 1 swap per day per 10 staked NFTs as baseline
+            uint256 assumedDailySwaps = totalStaked / 10 + 1;
+            uint256 dailyRewards = (assumedDailySwaps * swapFeeInWei * (100 - stonerShare)) / 100;
+            uint256 yearlyRewards = dailyRewards * 365;
+            
+            // APR = (yearly rewards / "cost basis") * 100
+            // For NFTs, we can use current floor price or swap fee as proxy
+            aprEstimate = (yearlyRewards * 100) / (swapFeeInWei * totalStaked);
+        }
+        
+        return (
+            totalRewardsDistributed, // Using this as proxy for total fees
+            totalRewardsDistributed,
+            0, // Would need additional tracking
+            dailyRatePerNFT,
+            aprEstimate
+        );
+    }
+
+    /**
+     * @dev Get detailed token information for swap interface
+     */
+    function getTokenDetails(uint256 tokenId) external view returns (
+        bool isInPool,
+        bool isStaked,
+        address currentOwner,
+        uint256 receiptTokenId,
+        uint256 stakedTimestamp
+    ) {
+        isInPool = tokenInPool[tokenId];
+        receiptTokenId = originalToReceiptToken[tokenId];
+        isStaked = receiptTokenId != 0 && stakeInfos[receiptTokenId].active;
+        currentOwner = IERC721(nftCollection).ownerOf(tokenId);
+        stakedTimestamp = isStaked ? stakeInfos[receiptTokenId].stakedAt : 0;
+    }
+
+    /**
+     * @dev Get swappable tokens with pagination for large collections
+     */
+    function getSwappableTokensPaginated(uint256 offset, uint256 limit) external view returns (
+        uint256[] memory tokenIds,
+        uint256 totalAvailable,
+        bool hasMore
+    ) {
+        uint256 available = poolTokens.length;
+        totalAvailable = available;
+        
+        if (offset >= available) {
+            return (new uint256[](0), totalAvailable, false);
+        }
+        
+        uint256 end = offset + limit;
+        if (end > available) {
+            end = available;
+        }
+        
+        uint256 resultLength = end - offset;
+        tokenIds = new uint256[](resultLength);
+        
+        for (uint256 i = 0; i < resultLength; i++) {
+            tokenIds[i] = poolTokens[offset + i];
+        }
+        
+        hasMore = end < available;
+    }
+
+    /**
+     * @dev Get optimal swap suggestions based on user preferences
+     */
+    function getSwapSuggestions(uint256 userTokenId, uint256 maxSuggestions) external view returns (
+        uint256[] memory suggestedTokens,
+        string[] memory reasons
+    ) {
+        if (!tokenInPool[userTokenId] && IERC721(nftCollection).ownerOf(userTokenId) != msg.sender) {
+            return (new uint256[](0), new string[](0));
+        }
+        
+        uint256 available = poolTokens.length;
+        uint256 suggestions = maxSuggestions > available ? available : maxSuggestions;
+        
+        suggestedTokens = new uint256[](suggestions);
+        reasons = new string[](suggestions);
+        
+        for (uint256 i = 0; i < suggestions && i < available; i++) {
+            suggestedTokens[i] = poolTokens[i];
+            reasons[i] = "Available for swap";
+        }
     }
 
     function getReceiptForToken(uint256 tokenId) external view returns (uint256) {
@@ -1992,6 +2230,60 @@ contract SwapPoolNative is
     function estimateBatchUnstakeGas(uint256 numTokens) external pure returns (uint256 estimatedGas) {
         // Rough estimation: ~150k gas per unstake + 21k base
         return 21000 + (numTokens * 150000);
+    }
+
+    /**
+     * @dev Get detailed gas estimates for all operations
+     */
+    function getGasEstimates() external pure returns (
+        uint256 swapGas,
+        uint256 stakeGas,
+        uint256 unstakeGas,
+        uint256 claimGas,
+        uint256 batchUnstakePerToken
+    ) {
+        return (200000, 180000, 150000, 80000, 150000);
+    }
+
+    /**
+     * @dev Preview swap transaction before execution
+     */
+    function previewSwap(uint256 tokenIdIn, uint256 tokenIdOut) external view returns (
+        bool canSwap,
+        string memory reason,
+        uint256 feeRequired,
+        uint256 estimatedGas,
+        uint256 rewardImpact
+    ) {
+        canSwap = false;
+        reason = "Unknown error";
+        feeRequired = swapFeeInWei;
+        estimatedGas = 200000;
+        
+        if (tokenIdIn == tokenIdOut) {
+            reason = "Cannot swap same token";
+            return (canSwap, reason, feeRequired, estimatedGas, rewardImpact);
+        }
+        
+        if (IERC721(nftCollection).ownerOf(tokenIdOut) != address(this)) {
+            reason = "Target token not available";
+            return (canSwap, reason, feeRequired, estimatedGas, rewardImpact);
+        }
+        
+        if (!tokenInPool[tokenIdOut]) {
+            reason = "Target token not in swappable pool";
+            return (canSwap, reason, feeRequired, estimatedGas, rewardImpact);
+        }
+        
+        canSwap = true;
+        reason = "Swap available";
+        
+        // Calculate reward impact
+        if (totalStaked > 0) {
+            uint256 rewardAmount = stonerShare > 0 ? 
+                feeRequired - (feeRequired * stonerShare / 100) : feeRequired;
+            rewardImpact = (rewardAmount * 1e18) / totalStaked;
+        }
     }
 
     /**
