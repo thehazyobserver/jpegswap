@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 
 // File: @openzeppelin/contracts-upgradeable@4.8.3/utils/AddressUpgradeable.sol
 
@@ -1375,15 +1376,8 @@ interface IERC721Upgradeable is IERC165Upgradeable {
     function isApprovedForAll(address owner, address operator) external view returns (bool);
 }
 
-// File: stonerfeepool.sol
-
 
 pragma solidity ^0.8.19;
-
-
-
-
-
 
 
 interface IStakeReceipt {
@@ -1423,11 +1417,18 @@ contract StonerFeePool is
     error NotStaked();
     error AlreadyStaked();
     error NotYourToken();
-    error NoAvailableTokens();
     error NoStakers();
     error ZeroETH();
 
+    /// @custom:oz-upgrades-unsafe-allow constructor
+    constructor() {
+        _disableInitializers();
+    }
+
     function initialize(address _stonerNFT, address _receiptToken) public initializer {
+        require(_stonerNFT != address(0), "Zero address");
+        require(_receiptToken != address(0), "Zero receipt address");
+
         __Ownable_init();
         __UUPSUpgradeable_init();
         __ReentrancyGuard_init();
@@ -1439,25 +1440,32 @@ contract StonerFeePool is
 
     function stake(uint256 tokenId) external whenNotPaused {
         if (isStaked[tokenId]) revert AlreadyStaked();
+        
         stonerNFT.transferFrom(msg.sender, address(this), tokenId);
         isStaked[tokenId] = true;
         stakerOf[tokenId] = msg.sender;
         stakedTokens[msg.sender].push(tokenId);
         receiptToken.mint(msg.sender, tokenId);
+        
         _updateReward(msg.sender);
         totalStaked++;
+        
         emit Staked(msg.sender, tokenId);
     }
 
     function unstake(uint256 tokenId) external whenNotPaused {
         if (stakerOf[tokenId] != msg.sender) revert NotYourToken();
+        
         receiptToken.burn(tokenId);
         delete stakerOf[tokenId];
         isStaked[tokenId] = false;
         _removeFromArray(stakedTokens[msg.sender], tokenId);
         totalStaked--;
+        
         _updateReward(msg.sender);
+        
         stonerNFT.transferFrom(address(this), msg.sender, tokenId);
+        
         emit Unstaked(msg.sender, tokenId);
     }
 
@@ -1477,10 +1485,13 @@ contract StonerFeePool is
         _updateReward(msg.sender);
         uint256 reward = rewards[msg.sender];
         if (reward == 0) return;
+        
         rewards[msg.sender] = 0;
         totalRewardsClaimed += reward;
+        
         (bool success, ) = payable(msg.sender).call{value: reward}("");
         require(success, "Transfer failed");
+        
         emit RewardClaimed(msg.sender, reward);
     }
 
@@ -1502,8 +1513,10 @@ contract StonerFeePool is
         }
     }
 
+    // 🔧 ADMIN FUNCTIONS
     function emergencyUnstake(uint256 tokenId, address to) external onlyOwner {
         if (!isStaked[tokenId]) revert NotStaked();
+        
         address staker = stakerOf[tokenId];
         if (staker != address(0)) {
             _removeFromArray(stakedTokens[staker], tokenId);
@@ -1511,26 +1524,47 @@ contract StonerFeePool is
             isStaked[tokenId] = false;
             totalStaked--;
         }
+        
         stonerNFT.transferFrom(address(this), to, tokenId);
         emit EmergencyUnstake(tokenId, to);
     }
 
-    function registerMe() external {
+    function registerMe() external onlyOwner {
         (bool _success,) = address(0xDC2B0D2Dd2b7759D97D50db4eabDC36973110830).call(
             abi.encodeWithSignature("selfRegister(uint256)", 92)
         );
         require(_success, "FeeM registration failed");
     }
 
-    function pause() external onlyOwner {
-        _pause();
+    function pause() external onlyOwner { _pause(); }
+    function unpause() external onlyOwner { _unpause(); }
+
+    // 📊 VIEW FUNCTIONS
+    function getStakedTokens(address user) external view returns (uint256[] memory) {
+        return stakedTokens[user];
     }
 
-    function unpause() external onlyOwner {
-        _unpause();
+    function calculatePendingRewards(address user) external view returns (uint256) {
+        uint256 userBalance = stakedTokens[user].length;
+        uint256 owed = (userBalance * (rewardPerTokenStored - userRewardPerTokenPaid[user]));
+        return rewards[user] + owed;
     }
 
-    function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}
+    function getPoolInfo() external view returns (
+        address nftAddress,
+        uint256 totalStakedTokens,
+        uint256 totalRewards,
+        uint256 contractBalance
+    ) {
+        return (
+            address(stonerNFT),
+            totalStaked,
+            totalRewardsClaimed,
+            address(this).balance
+        );
+    }
+
+    function _authorizeUpgrade(address) internal override onlyOwner {}
 
     receive() external payable {
         notifyNativeReward();
