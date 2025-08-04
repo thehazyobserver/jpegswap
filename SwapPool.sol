@@ -1191,7 +1191,7 @@ abstract contract UUPSUpgradeable is Initializable, IERC1822ProxiableUpgradeable
      * function _authorizeUpgrade(address) internal override onlyOwner {}
      * ```
      */
-    function _authorizeUpgrade(address newImplementation) internal virtual;
+    function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}
 
     /**
      * @dev This empty reserved space is put in place to allow future versions to add new
@@ -2312,6 +2312,264 @@ contract SwapPoolNative is
         activeStakes = getUserActiveStakeCount(user);
         canUnstake = activeStakes > 0 && activeStakes <= 20;
         estimatedGas = 21000 + (activeStakes * 150000);
+    }
+
+    // 🎯 ENHANCED UI/UX FUNCTIONS FOR BETTER FRONTEND INTEGRATION
+
+    /**
+     * @dev Get comprehensive pool analytics for dashboard
+     */
+    function getPoolAnalytics() external view returns (
+        uint256 totalLiquidity,
+        uint256 utilizationRate,
+        uint256 stakingRatio,
+        uint256 averageStakingTime,
+        uint256 dailyVolume,
+        uint256 weeklyVolume,
+        uint256 monthlyVolume
+    ) {
+        uint256 totalTokensInContract = IERC721(nftCollection).balanceOf(address(this));
+        
+        totalLiquidity = poolTokens.length;
+        utilizationRate = totalTokensInContract > 0 ? 
+            (totalLiquidity * 10000) / totalTokensInContract : 0; // Basis points
+        stakingRatio = totalTokensInContract > 0 ? 
+            (totalStaked * 10000) / totalTokensInContract : 0; // Basis points
+        
+        // Calculate average staking time from active stakes
+        uint256 totalStakingTime = 0;
+        uint256 activeStakeCount = 0;
+        
+        // Note: In production, you'd want to track this more efficiently
+        // This is a simplified calculation for demonstration
+        averageStakingTime = 0; // Would need historical data tracking
+        dailyVolume = 0;   // Would need swap tracking
+        weeklyVolume = 0;  // Would need swap tracking  
+        monthlyVolume = 0; // Would need swap tracking
+    }
+
+    /**
+     * @dev Get user's complete dashboard data in one call
+     */
+    function getUserDashboard(address user) external view returns (
+        uint256 stakedCount,
+        uint256 pendingRewards,
+        uint256 totalEarned,
+        uint256 averageStakingDays,
+        uint256[] memory userTokens,
+        uint256[] memory stakingTimestamps,
+        bool canUnstakeAll,
+        uint256 estimatedUnstakeAllGas
+    ) {
+        stakedCount = getUserActiveStakeCount(user);
+        pendingRewards = earned(user);
+        
+        // Get user's active stakes details
+        (,uint256[] memory receiptIds, uint256[] memory originalIds, uint256[] memory timestamps) = 
+            getUserActiveStakeDetails(user);
+        
+        userTokens = originalIds;
+        stakingTimestamps = timestamps;
+        
+        // Calculate average staking time
+        if (timestamps.length > 0) {
+            uint256 totalTime = 0;
+            for (uint256 i = 0; i < timestamps.length; i++) {
+                totalTime += block.timestamp - timestamps[i];
+            }
+            averageStakingDays = (totalTime / timestamps.length) / 86400;
+        }
+        
+        // Check unstake all capability
+        canUnstakeAll = stakedCount > 0 && stakedCount <= 20;
+        estimatedUnstakeAllGas = 21000 + (stakedCount * 150000);
+        totalEarned = 0; // Would need additional tracking
+    }
+
+    /**
+     * @dev Get real-time pool status for status indicators
+     */
+    function getPoolStatus() external view returns (
+        bool isActive,
+        bool hasLiquidity,
+        bool acceptingStakes,
+        string memory statusMessage,
+        uint256 healthScore
+    ) {
+        isActive = !paused();
+        hasLiquidity = poolTokens.length >= MIN_POOL_SIZE;
+        acceptingStakes = !paused() && initialized;
+        
+        if (!isActive) {
+            statusMessage = "Pool is paused";
+            healthScore = 0;
+        } else if (!hasLiquidity) {
+            statusMessage = "Low liquidity warning";
+            healthScore = 25;
+        } else if (poolTokens.length >= 50) {
+            statusMessage = "Excellent liquidity";
+            healthScore = 100;
+        } else if (poolTokens.length >= 20) {
+            statusMessage = "Good liquidity";
+            healthScore = 75;
+        } else {
+            statusMessage = "Moderate liquidity";
+            healthScore = 50;
+        }
+    }
+
+    /**
+     * @dev Get optimized swap interface data
+     */
+    function getSwapInterfaceData(address user) external view returns (
+        uint256[] memory userOwnedTokens,
+        uint256[] memory swappableTokens,
+        uint256 swapFee,
+        uint256 estimatedGasSwap,
+        bool poolActive
+    ) {
+        // Get user's tokens that can be swapped (not staked)
+        uint256 userBalance = IERC721(nftCollection).balanceOf(user);
+        uint256[] memory ownedTokens = new uint256[](userBalance);
+        uint256 ownedCount = 0;
+        
+        // Note: In production, you'd implement a more efficient way to get user tokens
+        // This is simplified for demonstration
+        
+        swappableTokens = poolTokens;
+        swapFee = swapFeeInWei;
+        estimatedGasSwap = 200000;
+        poolActive = !paused() && poolTokens.length >= MIN_POOL_SIZE;
+        
+        userOwnedTokens = new uint256[](0); // Simplified - would need proper enumeration
+    }
+
+    /**
+     * @dev Get staking interface data for better UX
+     */
+    function getStakingInterfaceData(address user) external view returns (
+        uint256[] memory stakableTokens,
+        uint256 currentRewardRate,
+        uint256 projectedDailyEarnings,
+        uint256 estimatedGasStake,
+        bool stakingActive,
+        uint256 totalStakingSlots,
+        uint256 usedStakingSlots
+    ) {
+        // Calculate current reward rate per staked NFT per day
+        currentRewardRate = totalStaked > 0 ? 
+            (rewardPerTokenStored * 86400) / 1e18 / totalStaked : 0;
+            
+        uint256 userActiveStakes = getUserActiveStakeCount(user);
+        projectedDailyEarnings = userActiveStakes * currentRewardRate;
+        
+        estimatedGasStake = 180000;
+        stakingActive = !paused() && initialized;
+        
+        // For UI purposes - show reasonable limits
+        totalStakingSlots = 1000; // Theoretical max for gas efficiency
+        usedStakingSlots = totalStaked;
+        
+        stakableTokens = new uint256[](0); // Simplified - would need proper user token enumeration
+    }
+
+    /**
+     * @dev Get transaction preview for better user experience
+     */
+    function getTransactionPreviews(address user) external view returns (
+        uint256 unstakeAllRewards,
+        uint256 unstakeAllGas,
+        uint256 claimOnlyRewards,
+        uint256 claimOnlyGas,
+        uint256 swapGas,
+        uint256 stakeGas
+    ) {
+        unstakeAllRewards = earned(user);
+        unstakeAllGas = 21000 + (getUserActiveStakeCount(user) * 150000);
+        claimOnlyRewards = earned(user);
+        claimOnlyGas = 80000;
+        swapGas = 200000;
+        stakeGas = 180000;
+    }
+
+    /**
+     * @dev Check multiple token statuses efficiently
+     */
+    function getMultipleTokenStatuses(uint256[] calldata tokenIds) external view returns (
+        bool[] memory inPool,
+        bool[] memory isStaked,
+        address[] memory owners,
+        uint256[] memory receiptIds
+    ) {
+        uint256 length = tokenIds.length;
+        inPool = new bool[](length);
+        isStaked = new bool[](length);
+        owners = new address[](length);
+        receiptIds = new uint256[](length);
+        
+        for (uint256 i = 0; i < length; i++) {
+            uint256 tokenId = tokenIds[i];
+            inPool[i] = tokenInPool[tokenId];
+            receiptIds[i] = originalToReceiptToken[tokenId];
+            isStaked[i] = receiptIds[i] != 0 && stakeInfos[receiptIds[i]].active;
+            
+            try IERC721(nftCollection).ownerOf(tokenId) returns (address owner) {
+                owners[i] = owner;
+            } catch {
+                owners[i] = address(0);
+            }
+        }
+    }
+
+    /**
+     * @dev Get recommended actions for user based on their portfolio
+     */
+    function getRecommendedActions(address user) external view returns (
+        string[] memory actions,
+        string[] memory reasons,
+        uint256[] memory estimatedGas,
+        uint256[] memory potentialRewards
+    ) {
+        uint256 userStaked = getUserActiveStakeCount(user);
+        uint256 userRewards = earned(user);
+        uint256 userTokenBalance = IERC721(nftCollection).balanceOf(user);
+        
+        // Dynamic recommendations based on user state
+        uint256 recommendationCount = 0;
+        if (userRewards > 0.001 ether) recommendationCount++; // Has rewards to claim
+        if (userTokenBalance > 0 && poolTokens.length >= MIN_POOL_SIZE) recommendationCount++; // Can stake
+        if (userStaked > 0) recommendationCount++; // Can unstake
+        
+        actions = new string[](recommendationCount);
+        reasons = new string[](recommendationCount);
+        estimatedGas = new uint256[](recommendationCount);
+        potentialRewards = new uint256[](recommendationCount);
+        
+        uint256 index = 0;
+        
+        if (userRewards > 0.001 ether) {
+            actions[index] = "Claim Rewards";
+            reasons[index] = "You have claimable rewards";
+            estimatedGas[index] = 80000;
+            potentialRewards[index] = userRewards;
+            index++;
+        }
+        
+        if (userTokenBalance > 0 && poolTokens.length >= MIN_POOL_SIZE) {
+            actions[index] = "Stake Tokens";
+            reasons[index] = "Start earning rewards on your tokens";
+            estimatedGas[index] = 180000 * userTokenBalance;
+            potentialRewards[index] = 0; // Future earnings
+            index++;
+        }
+        
+        if (userStaked > 0) {
+            actions[index] = "Review Stakes";
+            reasons[index] = "Check your staking positions";
+            estimatedGas[index] = 0; // View only
+            potentialRewards[index] = 0;
+            index++;
+        }
     }
 
     function _authorizeUpgrade(address) internal override onlyOwner {}

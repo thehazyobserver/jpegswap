@@ -1677,6 +1677,12 @@ contract StonerFeePool is
         return rewards[user] + owed;
     }
 
+    function _calculatePendingRewards(address user) internal view returns (uint256) {
+        uint256 userBalance = stakedTokens[user].length;
+        uint256 owed = (userBalance * (rewardPerTokenStored - userRewardPerTokenPaid[user]));
+        return rewards[user] + owed;
+    }
+
     function getPoolInfo() external view returns (
         address nftAddress,
         uint256 totalStakedTokens,
@@ -1689,6 +1695,322 @@ contract StonerFeePool is
             totalRewardsClaimed,
             address(this).balance
         );
+    }
+
+    // 🎯 ENHANCED UI/UX FUNCTIONS FOR BETTER FRONTEND INTEGRATION
+
+    /**
+     * @dev Get comprehensive dashboard data for a user
+     */
+    function getUserDashboard(address user) external view returns (
+        uint256 stakedCount,
+        uint256 pendingRewards,
+        uint256 totalClaimed,
+        uint256[] memory stakedTokenIds,
+        uint256 averageStakingDays,
+        uint256 dailyRewardRate,
+        uint256 projectedMonthlyEarnings
+    ) {
+        stakedTokenIds = stakedTokens[user];
+        stakedCount = stakedTokenIds.length;
+        pendingRewards = _calculatePendingRewards(user);
+        
+        // Calculate average staking time (simplified)
+        if (stakedCount > 0) {
+            // In production, you'd track individual staking timestamps
+            averageStakingDays = 30; // Placeholder - would need timestamp tracking
+        }
+        
+        // Calculate reward rates
+        dailyRewardRate = totalStaked > 0 ? 
+            (rewardPerTokenStored * stakedCount * 86400) / totalStaked : 0;
+        projectedMonthlyEarnings = dailyRewardRate * 30;
+        
+        totalClaimed = 0; // Would need individual user tracking
+    }
+
+    /**
+     * @dev Get pool statistics for analytics dashboard
+     */
+    function getPoolStatistics() external view returns (
+        uint256 totalUniqueStakers,
+        uint256 averageStakePerUser,
+        uint256 poolUtilizationRate,
+        uint256 totalRewardsDistributed,
+        uint256 averageDailyRewards,
+        uint256 stakingAPR
+    ) {
+        // Count unique stakers
+        totalUniqueStakers = 0; // Would need separate tracking in production
+        
+        averageStakePerUser = totalStaked > 0 ? totalStaked / (totalUniqueStakers > 0 ? totalUniqueStakers : 1) : 0;
+        
+        // Pool utilization (how much of circulating supply is staked)
+        uint256 totalSupply = 10000; // Placeholder - would get from NFT contract
+        poolUtilizationRate = (totalStaked * 10000) / totalSupply; // Basis points
+        
+        totalRewardsDistributed = totalRewardsClaimed + address(this).balance;
+        
+        // Estimate daily rewards based on recent activity
+        averageDailyRewards = totalRewardsDistributed / 30; // Placeholder calculation
+        
+        // Calculate APR based on reward rate
+        if (totalStaked > 0 && rewardPerTokenStored > 0) {
+            stakingAPR = (rewardPerTokenStored * 365 * 100) / 1e18; // Simplified APR
+        }
+    }
+
+    /**
+     * @dev Get batch operation data for UI optimization
+     */
+    function getBatchOperationData(address user) external view returns (
+        uint256[] memory stakableTokens,
+        uint256 maxBatchSize,
+        uint256 estimatedGasPerStake,
+        uint256 estimatedGasPerUnstake,
+        bool canStakeMultiple,
+        bool canUnstakeMultiple
+    ) {
+        stakableTokens = new uint256[](0); // Would need to enumerate user's unstaked tokens
+        maxBatchSize = 10;
+        estimatedGasPerStake = 150000;
+        estimatedGasPerUnstake = 120000;
+        
+        uint256 userStakedCount = stakedTokens[user].length;
+        canStakeMultiple = true; // User can always try to stake if they have tokens
+        canUnstakeMultiple = userStakedCount > 1;
+    }
+
+    /**
+     * @dev Get real-time pool health metrics
+     */
+    function getPoolHealth() external view returns (
+        bool isHealthy,
+        uint256 healthScore,
+        string memory statusMessage,
+        uint256 stakingVelocity,
+        uint256 rewardVelocity
+    ) {
+        // Calculate health metrics
+        bool hasStakers = totalStaked > 0;
+        bool hasRewards = address(this).balance > 0;
+        bool isActive = !paused();
+        
+        // Health score calculation (0-100)
+        healthScore = 0;
+        if (isActive) healthScore += 25;
+        if (hasStakers) healthScore += 35;
+        if (hasRewards) healthScore += 25;
+        if (totalStaked >= 100) healthScore += 15; // Bonus for good participation
+        
+        isHealthy = healthScore >= 60;
+        
+        if (!isActive) {
+            statusMessage = "Pool is paused";
+        } else if (!hasStakers) {
+            statusMessage = "No active stakers";
+        } else if (!hasRewards) {
+            statusMessage = "No rewards available";
+        } else if (healthScore >= 85) {
+            statusMessage = "Excellent pool health";
+        } else if (healthScore >= 60) {
+            statusMessage = "Good pool health";
+        } else {
+            statusMessage = "Pool needs attention";
+        }
+        
+        // Velocity metrics (would need historical tracking in production)
+        stakingVelocity = 0; // Staking rate per day
+        rewardVelocity = 0;  // Reward distribution rate per day
+    }
+
+    /**
+     * @dev Get recommended actions for user
+     */
+    function getRecommendedActions(address user) external view returns (
+        string[] memory actions,
+        string[] memory descriptions,
+        uint256[] memory estimatedGas,
+        uint256[] memory potentialRewards
+    ) {
+        uint256 userStakedCount = stakedTokens[user].length;
+        uint256 userPendingRewards = _calculatePendingRewards(user);
+        
+        // Determine number of recommendations
+        uint256 actionCount = 0;
+        if (userPendingRewards > 0.001 ether) actionCount++; // Has rewards to claim
+        if (userStakedCount == 0) actionCount++; // Should consider staking
+        if (userStakedCount > 1) actionCount++; // Can use batch operations
+        
+        actions = new string[](actionCount);
+        descriptions = new string[](actionCount);
+        estimatedGas = new uint256[](actionCount);
+        potentialRewards = new uint256[](actionCount);
+        
+        uint256 index = 0;
+        
+        if (userPendingRewards > 0.001 ether) {
+            actions[index] = "Claim Rewards";
+            descriptions[index] = "You have unclaimed rewards available";
+            estimatedGas[index] = 80000;
+            potentialRewards[index] = userPendingRewards;
+            index++;
+        }
+        
+        if (userStakedCount == 0) {
+            actions[index] = "Start Staking";
+            descriptions[index] = "Stake your Stoner NFTs to earn rewards";
+            estimatedGas[index] = 150000;
+            potentialRewards[index] = 0;
+            index++;
+        }
+        
+        if (userStakedCount > 1) {
+            actions[index] = "Use Batch Operations";
+            descriptions[index] = "Save gas with batch stake/unstake operations";
+            estimatedGas[index] = userStakedCount * 100000; // Estimated batch savings
+            potentialRewards[index] = 0;
+            index++;
+        }
+    }
+
+    /**
+     * @dev Get staking interface data
+     */
+    function getStakingInterfaceData(address user) external view returns (
+        uint256 userStakedCount,
+        uint256 totalStakingSlots,
+        uint256 currentRewardRate,
+        uint256 estimatedDailyRewards,
+        uint256 minimumStakingPeriod,
+        bool stakingActive
+    ) {
+        userStakedCount = stakedTokens[user].length;
+        totalStakingSlots = 10000; // Theoretical maximum
+        
+        // Calculate reward rate per staked NFT per day
+        currentRewardRate = totalStaked > 0 ? 
+            (rewardPerTokenStored * 86400) / totalStaked : 0;
+        estimatedDailyRewards = userStakedCount * currentRewardRate;
+        
+        minimumStakingPeriod = 0; // No minimum period
+        stakingActive = !paused();
+    }
+
+    /**
+     * @dev Get transaction cost estimates
+     */
+    function getGasEstimates() external pure returns (
+        uint256 stakeGas,
+        uint256 unstakeGas,
+        uint256 claimGas,
+        uint256 batchStakePerToken,
+        uint256 batchUnstakePerToken
+    ) {
+        return (150000, 120000, 80000, 120000, 100000);
+    }
+
+    /**
+     * @dev Get user's complete staking history summary
+     */
+    function getUserStakingSummary(address user) external view returns (
+        uint256 currentlyStaked,
+        uint256 lifetimeStaked,
+        uint256 lifetimeRewards,
+        uint256 averageStakingPeriod,
+        uint256 lastStakeTime,
+        uint256 lastClaimTime
+    ) {
+        currentlyStaked = stakedTokens[user].length;
+        
+        // These would need historical tracking in production
+        lifetimeStaked = currentlyStaked; // Simplified
+        lifetimeRewards = 0; // Would need tracking
+        averageStakingPeriod = 0; // Would need timestamp tracking
+        lastStakeTime = 0; // Would need event tracking
+        lastClaimTime = 0; // Would need event tracking
+    }
+
+    /**
+     * @dev Preview unstake operation
+     */
+    function previewUnstake(uint256 tokenId) external view returns (
+        bool canUnstake,
+        string memory reason,
+        uint256 estimatedGas,
+        uint256 rewardsToReceive
+    ) {
+        canUnstake = false;
+        reason = "Unknown error";
+        estimatedGas = 120000;
+        rewardsToReceive = 0;
+        
+        if (!isStaked[tokenId]) {
+            reason = "Token is not staked";
+            return (canUnstake, reason, estimatedGas, rewardsToReceive);
+        }
+        
+        if (stakerOf[tokenId] != msg.sender) {
+            reason = "You don't own this staked token";
+            return (canUnstake, reason, estimatedGas, rewardsToReceive);
+        }
+        
+        if (paused()) {
+            reason = "Pool is currently paused";
+            return (canUnstake, reason, estimatedGas, rewardsToReceive);
+        }
+        
+        canUnstake = true;
+        reason = "Unstake available";
+        rewardsToReceive = _calculatePendingRewards(msg.sender);
+    }
+
+    /**
+     * @dev Get efficient batch preview
+     */
+    function previewBatchUnstake(uint256[] calldata tokenIds) external view returns (
+        bool canUnstake,
+        string memory reason,
+        uint256 estimatedGas,
+        uint256 totalRewardsToReceive,
+        bool[] memory validTokens
+    ) {
+        canUnstake = false;
+        reason = "Unknown error";
+        estimatedGas = 21000 + (tokenIds.length * 100000);
+        totalRewardsToReceive = 0;
+        validTokens = new bool[](tokenIds.length);
+        
+        if (tokenIds.length == 0) {
+            reason = "No tokens provided";
+            return (canUnstake, reason, estimatedGas, totalRewardsToReceive, validTokens);
+        }
+        
+        if (tokenIds.length > 10) {
+            reason = "Too many tokens (max 10)";
+            return (canUnstake, reason, estimatedGas, totalRewardsToReceive, validTokens);
+        }
+        
+        if (paused()) {
+            reason = "Pool is currently paused";
+            return (canUnstake, reason, estimatedGas, totalRewardsToReceive, validTokens);
+        }
+        
+        bool allValid = true;
+        for (uint256 i = 0; i < tokenIds.length; i++) {
+            bool valid = isStaked[tokenIds[i]] && stakerOf[tokenIds[i]] == msg.sender;
+            validTokens[i] = valid;
+            if (!valid) allValid = false;
+        }
+        
+        if (!allValid) {
+            reason = "Some tokens are invalid";
+            return (canUnstake, reason, estimatedGas, totalRewardsToReceive, validTokens);
+        }
+        
+        canUnstake = true;
+        reason = "Batch unstake available";
+        totalRewardsToReceive = _calculatePendingRewards(msg.sender);
     }
 
     function _authorizeUpgrade(address) internal override onlyOwner {}

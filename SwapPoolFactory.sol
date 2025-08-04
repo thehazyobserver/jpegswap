@@ -1519,4 +1519,425 @@ contract SwapPoolFactoryNative is Ownable, ReentrancyGuard {
         implementation = newImplementation;
         emit ImplementationUpdated(oldImpl, newImplementation);
     }
+
+    // 🎯 ENHANCED UI/UX FUNCTIONS FOR BETTER FRONTEND INTEGRATION
+
+    /**
+     * @dev Get comprehensive dashboard data for factory overview
+     */
+    function getFactoryDashboard() external view returns (
+        uint256 totalPools,
+        uint256 totalCollections,
+        uint256 totalTVL,
+        uint256 averagePoolSize,
+        uint256 largestPoolTVL,
+        address mostActivePool,
+        uint256 factoryHealthScore
+    ) {
+        totalPools = allPools.length;
+        totalCollections = totalPools; // 1:1 mapping
+        
+        uint256 poolSizeSum = 0;
+        uint256 maxPoolSize = 0;
+        address largestPool = address(0);
+        uint256 healthyPools = 0;
+        
+        for (uint256 i = 0; i < allPools.length; i++) {
+            try ISwapPoolRewards(allPools[i]).nftCollection() returns (address collection) {
+                if (collectionToPool[collection] == allPools[i]) {
+                    try IERC721(collection).balanceOf(allPools[i]) returns (uint256 balance) {
+                        poolSizeSum += balance;
+                        totalTVL += balance;
+                        if (balance > maxPoolSize) {
+                            maxPoolSize = balance;
+                            largestPool = allPools[i];
+                        }
+                        if (balance >= 10) healthyPools++; // Consider pools with 10+ NFTs healthy
+                    } catch {}
+                }
+            } catch {}
+        }
+        
+        averagePoolSize = totalPools > 0 ? poolSizeSum / totalPools : 0;
+        largestPoolTVL = maxPoolSize;
+        mostActivePool = largestPool;
+        factoryHealthScore = totalPools > 0 ? (healthyPools * 100) / totalPools : 0;
+    }
+
+    /**
+     * @dev Get pool leaderboard for competitive display
+     */
+    function getPoolLeaderboard(uint256 limit) external view returns (
+        address[] memory pools,
+        address[] memory collections,
+        uint256[] memory tvlRanks,
+        uint256[] memory volumeRanks,
+        uint256[] memory stakingRanks,
+        string[] memory collectionNames
+    ) {
+        uint256 resultCount = limit > allPools.length ? allPools.length : limit;
+        
+        pools = new address[](resultCount);
+        collections = new address[](resultCount);
+        tvlRanks = new uint256[](resultCount);
+        volumeRanks = new uint256[](resultCount);
+        stakingRanks = new uint256[](resultCount);
+        collectionNames = new string[](resultCount);
+        
+        // Simple implementation - in production would sort by actual metrics
+        for (uint256 i = 0; i < resultCount; i++) {
+            pools[i] = allPools[i];
+            try ISwapPoolRewards(allPools[i]).nftCollection() returns (address collection) {
+                collections[i] = collection;
+                try IERC721(collection).balanceOf(allPools[i]) returns (uint256 balance) {
+                    tvlRanks[i] = balance;
+                } catch {}
+                // Would implement name resolution in production
+                collectionNames[i] = "NFT Collection";
+            } catch {}
+            volumeRanks[i] = i + 1; // Placeholder ranking
+            stakingRanks[i] = i + 1; // Placeholder ranking
+        }
+    }
+
+    /**
+     * @dev Get user's portfolio across all pools
+     */
+    function getUserFactoryPortfolio(address user) external view returns (
+        uint256 totalStakedPools,
+        uint256 totalPendingRewards,
+        uint256 totalLifetimeRewards,
+        address[] memory activePools,
+        uint256[] memory stakedPerPool,
+        uint256[] memory pendingPerPool,
+        bool hasClaimableRewards
+    ) {
+        uint256 activeCount = 0;
+        uint256 totalPending = 0;
+        
+        // First pass: count active pools and calculate totals
+        for (uint256 i = 0; i < allPools.length; i++) {
+            try ISwapPoolRewards(allPools[i]).earned(user) returns (uint256 pending) {
+                if (pending > 0) {
+                    activeCount++;
+                    totalPending += pending;
+                }
+            } catch {}
+        }
+        
+        // Initialize arrays
+        activePools = new address[](activeCount);
+        stakedPerPool = new uint256[](activeCount);
+        pendingPerPool = new uint256[](activeCount);
+        
+        // Second pass: populate arrays
+        uint256 index = 0;
+        for (uint256 i = 0; i < allPools.length; i++) {
+            try ISwapPoolRewards(allPools[i]).earned(user) returns (uint256 pending) {
+                if (pending > 0) {
+                    activePools[index] = allPools[i];
+                    pendingPerPool[index] = pending;
+                    stakedPerPool[index] = 0; // Would need extended interface to get staked count
+                    index++;
+                }
+            } catch {}
+        }
+        
+        totalStakedPools = activeCount;
+        totalPendingRewards = totalPending;
+        totalLifetimeRewards = 0; // Would need tracking
+        hasClaimableRewards = totalPending > 0;
+    }
+
+    /**
+     * @dev Get optimized batch claiming recommendations
+     */
+    function getBatchClaimingRecommendations(address user) external view returns (
+        bool shouldUseBatch,
+        uint256 recommendedBatchSize,
+        uint256 estimatedGasSavings,
+        uint256 totalClaimableAmount,
+        address[] memory priorityPools,
+        string memory recommendation
+    ) {
+        uint256 poolsWithRewards = 0;
+        uint256 totalRewards = 0;
+        
+        // Count pools with rewards
+        for (uint256 i = 0; i < allPools.length; i++) {
+            try ISwapPoolRewards(allPools[i]).earned(user) returns (uint256 pending) {
+                if (pending > 0) {
+                    poolsWithRewards++;
+                    totalRewards += pending;
+                }
+            } catch {}
+        }
+        
+        shouldUseBatch = poolsWithRewards > 2;
+        recommendedBatchSize = poolsWithRewards > 20 ? 20 : poolsWithRewards;
+        estimatedGasSavings = poolsWithRewards > 1 ? (poolsWithRewards - 1) * 25000 : 0; // Rough estimate
+        totalClaimableAmount = totalRewards;
+        
+        if (poolsWithRewards == 0) {
+            recommendation = "No rewards to claim";
+        } else if (poolsWithRewards == 1) {
+            recommendation = "Single pool claim recommended";
+        } else if (poolsWithRewards <= 5) {
+            recommendation = "Small batch claim (all pools)";
+        } else if (poolsWithRewards <= 20) {
+            recommendation = "Batch claim all pools";
+        } else {
+            recommendation = "Use paginated batch claiming";
+        }
+        
+        // Get priority pools (highest rewards first)
+        priorityPools = new address[](recommendedBatchSize);
+        // In production, would sort by reward amount
+    }
+
+    /**
+     * @dev Get factory health metrics for monitoring
+     */
+    function getFactoryHealthMetrics() external view returns (
+        uint256 healthScore,
+        bool isHealthy,
+        uint256 activePoolsPercent,
+        uint256 averagePoolUtilization,
+        string memory healthStatus,
+        string[] memory warnings
+    ) {
+        uint256 activePools = 0;
+        uint256 totalUtilization = 0;
+        uint256 warningCount = 0;
+        
+        warnings = new string[](5); // Max 5 warnings
+        
+        for (uint256 i = 0; i < allPools.length; i++) {
+            try ISwapPoolRewards(allPools[i]).nftCollection() returns (address collection) {
+                if (collectionToPool[collection] == allPools[i]) {
+                    try IERC721(collection).balanceOf(allPools[i]) returns (uint256 balance) {
+                        if (balance > 0) {
+                            activePools++;
+                            totalUtilization += balance;
+                        }
+                    } catch {}
+                }
+            } catch {}
+        }
+        
+        activePoolsPercent = allPools.length > 0 ? (activePools * 100) / allPools.length : 0;
+        averagePoolUtilization = activePools > 0 ? totalUtilization / activePools : 0;
+        
+        // Calculate health score
+        healthScore = 0;
+        if (allPools.length > 0) healthScore += 20;
+        if (activePoolsPercent >= 50) healthScore += 30;
+        if (averagePoolUtilization >= 10) healthScore += 30;
+        if (allPools.length >= 5) healthScore += 20;
+        
+        isHealthy = healthScore >= 60;
+        
+        if (healthScore >= 80) {
+            healthStatus = "Excellent";
+        } else if (healthScore >= 60) {
+            healthStatus = "Good";
+        } else if (healthScore >= 40) {
+            healthStatus = "Fair";
+        } else {
+            healthStatus = "Poor";
+        }
+        
+        // Add warnings
+        if (allPools.length == 0) {
+            warnings[warningCount] = "No pools created";
+            warningCount++;
+        }
+        if (activePoolsPercent < 50) {
+            warnings[warningCount] = "Less than 50% pools are active";
+            warningCount++;
+        }
+        if (averagePoolUtilization < 5) {
+            warnings[warningCount] = "Low average pool utilization";
+            warningCount++;
+        }
+        
+        // Resize warnings array
+        assembly {
+            mstore(warnings, warningCount)
+        }
+    }
+
+    /**
+     * @dev Get comprehensive collection analytics
+     */
+    function getCollectionAnalytics(address collection) external view returns (
+        bool hasPool,
+        address poolAddress,
+        uint256 totalStaked,
+        uint256 totalLiquidity,
+        uint256 totalRewardsDistributed,
+        uint256 currentAPY,
+        uint256 uniqueStakers,
+        bool poolIsHealthy
+    ) {
+        hasPool = collectionToPool[collection] != address(0);
+        poolAddress = collectionToPool[collection];
+        
+        if (hasPool) {
+            try IERC721(collection).balanceOf(poolAddress) returns (uint256 balance) {
+                totalLiquidity = balance;
+                poolIsHealthy = balance >= 10;
+            } catch {}
+            
+            // Additional metrics would require extended pool interface
+            totalStaked = 0; // Would need pool query
+            totalRewardsDistributed = 0; // Would need pool query
+            currentAPY = 0; // Would need pool query
+            uniqueStakers = 0; // Would need pool query
+        }
+    }
+
+    /**
+     * @dev Get gas optimization recommendations
+     */
+    function getGasOptimizationTips(address user) external view returns (
+        string[] memory tips,
+        uint256[] memory potentialSavings,
+        bool[] memory highPriority
+    ) {
+        uint256 userPoolCount = this.getUserActivePoolCount(user);
+        
+        tips = new string[](3);
+        potentialSavings = new uint256[](3);
+        highPriority = new bool[](3);
+        
+        uint256 tipCount = 0;
+        
+        if (userPoolCount > 3) {
+            tips[tipCount] = "Use batch claiming to save gas";
+            potentialSavings[tipCount] = (userPoolCount - 1) * 25000; // Estimated savings
+            highPriority[tipCount] = true;
+            tipCount++;
+        }
+        
+        if (userPoolCount > 20) {
+            tips[tipCount] = "Use paginated batch claiming for large portfolios";
+            potentialSavings[tipCount] = 100000; // Estimated savings
+            highPriority[tipCount] = true;
+            tipCount++;
+        }
+        
+        if (userPoolCount > 0) {
+            tips[tipCount] = "Claim rewards during low network congestion";
+            potentialSavings[tipCount] = 50000; // Estimated savings from timing
+            highPriority[tipCount] = false;
+            tipCount++;
+        }
+        
+        // Resize arrays to actual count
+        assembly {
+            mstore(tips, tipCount)
+            mstore(potentialSavings, tipCount)
+            mstore(highPriority, tipCount)
+        }
+    }
+
+    /**
+     * @dev Preview batch operations before execution
+     */
+    function previewBatchClaim(address user, address[] calldata targetPools) external view returns (
+        bool canExecute,
+        uint256 totalRewards,
+        uint256 estimatedGas,
+        uint256 validPoolCount,
+        bool[] memory poolValidity,
+        string memory statusMessage
+    ) {
+        poolValidity = new bool[](targetPools.length);
+        totalRewards = 0;
+        validPoolCount = 0;
+        canExecute = true;
+        statusMessage = "Ready to execute";
+        
+        if (targetPools.length == 0) {
+            canExecute = false;
+            statusMessage = "No pools specified";
+            estimatedGas = 0;
+            return (canExecute, totalRewards, estimatedGas, validPoolCount, poolValidity, statusMessage);
+        }
+        
+        if (targetPools.length > 50) {
+            canExecute = false;
+            statusMessage = "Too many pools (max 50)";
+            estimatedGas = 0;
+            return (canExecute, totalRewards, estimatedGas, validPoolCount, poolValidity, statusMessage);
+        }
+        
+        for (uint256 i = 0; i < targetPools.length; i++) {
+            bool isValid = false;
+            
+            try ISwapPoolRewards(targetPools[i]).nftCollection() returns (address collection) {
+                if (collectionToPool[collection] == targetPools[i]) {
+                    isValid = true;
+                    try ISwapPoolRewards(targetPools[i]).earned(user) returns (uint256 pending) {
+                        if (pending > 0) {
+                            totalRewards += pending;
+                        }
+                    } catch {}
+                }
+            } catch {}
+            
+            poolValidity[i] = isValid;
+            if (isValid) validPoolCount++;
+        }
+        
+        estimatedGas = 21000 + (validPoolCount * 45000); // Base + per pool estimate
+        
+        if (validPoolCount == 0) {
+            canExecute = false;
+            statusMessage = "No valid pools with rewards";
+        } else if (totalRewards == 0) {
+            statusMessage = "No rewards to claim";
+        } else {
+            statusMessage = "Ready to claim rewards";
+        }
+    }
+
+    /**
+     * @dev Get real-time factory statistics for live dashboards
+     */
+    function getLiveFactoryStats() external view returns (
+        uint256 totalPools,
+        uint256 totalTVL,
+        uint256 last24hVolume,
+        uint256 totalUniqueUsers,
+        uint256 averagePoolAPY,
+        uint256 factoryUptime,
+        bool systemHealthy
+    ) {
+        totalPools = allPools.length;
+        
+        uint256 tvlSum = 0;
+        uint256 healthyPools = 0;
+        
+        for (uint256 i = 0; i < allPools.length; i++) {
+            try ISwapPoolRewards(allPools[i]).nftCollection() returns (address collection) {
+                if (collectionToPool[collection] == allPools[i]) {
+                    try IERC721(collection).balanceOf(allPools[i]) returns (uint256 balance) {
+                        tvlSum += balance;
+                        if (balance >= 5) healthyPools++;
+                    } catch {}
+                }
+            } catch {}
+        }
+        
+        totalTVL = tvlSum;
+        systemHealthy = totalPools > 0 && (healthyPools * 100 / totalPools) >= 50;
+        
+        // These would need additional tracking in production
+        last24hVolume = 0;
+        totalUniqueUsers = 0;
+        averagePoolAPY = 0;
+        factoryUptime = 100; // Placeholder percentage
+    }
 }
