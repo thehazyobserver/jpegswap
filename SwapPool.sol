@@ -1192,7 +1192,7 @@ abstract contract UUPSUpgradeable is Initializable, IERC1822ProxiableUpgradeable
      * ```
      */
     function _authorizeUpgrade(address newImplementation) internal override {
-        require(owner() == _msgSender(), "Ownable: caller is not the owner");
+        _checkOwner();
     }
 
     /**
