@@ -2006,6 +2006,8 @@ contract SwapPoolNative is
 
     function _authorizeUpgrade(address) internal override onlyOwner {}
 
-    // Allow contract to receive ETH
-    receive() external payable {}
+    // Only allow ETH for swap fees - reject other ETH deposits
+    receive() external payable {
+        revert("Use swapNFT function");
+    }
 }
