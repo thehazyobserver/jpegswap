@@ -1381,7 +1381,7 @@ pragma solidity ^0.8.19;
 
 
 interface IStakeReceipt {
-    function mint(address to, uint256 tokenId) external;
+    function mint(address to, uint256 originalTokenId) external returns (uint256);
     function burn(uint256 tokenId) external;
     function ownerOf(uint256 tokenId) external view returns (address);
 }
@@ -1445,6 +1445,8 @@ contract StonerFeePool is
         isStaked[tokenId] = true;
         stakerOf[tokenId] = msg.sender;
         stakedTokens[msg.sender].push(tokenId);
+        
+        // Mint receipt token (ignore return value for simplicity in StonerFeePool)
         receiptToken.mint(msg.sender, tokenId);
         
         _updateReward(msg.sender);

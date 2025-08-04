@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // File: @openzeppelin/contracts-upgradeable@4.8.3/utils/AddressUpgradeable.sol
 
 
@@ -1789,7 +1791,7 @@ contract SwapPoolNative is
         
         uint256 randomIndex = uint256(keccak256(abi.encodePacked(
             block.timestamp,
-            block.difficulty,
+            block.prevrandao,
             msg.sender,
             poolTokens.length
         ))) % poolTokens.length;

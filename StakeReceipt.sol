@@ -1755,6 +1755,10 @@ pragma solidity ^0.8.19;
 contract StakeReceipt is ERC721Enumerable, Ownable {
     address public pool;
     string private baseURI;
+    
+    // Mapping to track original token IDs for each receipt
+    mapping(uint256 => uint256) public receiptToOriginalToken;
+    uint256 private _currentReceiptId;
 
     event BaseURIUpdated(string newBaseURI);
     event PoolSet(address pool);
@@ -1764,27 +1768,44 @@ contract StakeReceipt is ERC721Enumerable, Ownable {
     error InvalidURI();
     error PoolAlreadySet();
 
-    constructor(string memory name_, string memory symbol_) ERC721(name_, symbol_) {}
+    constructor(string memory name_, string memory symbol_) ERC721(name_, symbol_) {
+        _currentReceiptId = 1; // Start from 1 to avoid confusion with tokenId 0
+    }
 
     modifier onlyPool() {
         if (msg.sender != pool) revert OnlyPool();
         _;
     }
     
-  function setPool(address _pool) external onlyOwner {
+    function setPool(address _pool) external onlyOwner {
         if (pool != address(0)) revert PoolAlreadySet();
         require(_pool != address(0), "Zero pool address");
         pool = _pool;
         emit PoolSet(_pool);
     }
 
-    function mint(address to, uint256 tokenId) external onlyPool {
-        require(!_exists(tokenId), "Already minted");
-        _mint(to, tokenId);
+    function mint(address to, uint256 originalTokenId) external onlyPool returns (uint256) {
+        uint256 receiptTokenId = _currentReceiptId;
+        _currentReceiptId++;
+        
+        receiptToOriginalToken[receiptTokenId] = originalTokenId;
+        _mint(to, receiptTokenId);
+        
+        return receiptTokenId;
     }
 
-    function burn(uint256 tokenId) external onlyPool {
-        _burn(tokenId);
+    function burn(uint256 receiptTokenId) external onlyPool {
+        delete receiptToOriginalToken[receiptTokenId];
+        _burn(receiptTokenId);
+    }
+
+    function getOriginalTokenId(uint256 receiptTokenId) external view returns (uint256) {
+        require(_exists(receiptTokenId), "Receipt does not exist");
+        return receiptToOriginalToken[receiptTokenId];
+    }
+
+    function validateReceipt(uint256 receiptTokenId, address expectedPool) external view returns (bool) {
+        return _exists(receiptTokenId) && pool == expectedPool;
     }
 
     function setBaseURI(string memory uri) external onlyOwner {
@@ -1808,11 +1829,12 @@ contract StakeReceipt is ERC721Enumerable, Ownable {
     function supportsInterface(bytes4 interfaceId) public view override(ERC721Enumerable) returns (bool) {
         return super.supportsInterface(interfaceId);
     }
+    
     /// @dev Register my contract on Sonic FeeM
-function registerMe() external {
-    (bool _success,) = address(0xDC2B0D2Dd2b7759D97D50db4eabDC36973110830).call(
-        abi.encodeWithSignature("selfRegister(uint256)", 92)
-    );
-    require(_success, "FeeM registration failed");
-}
+    function registerMe() external {
+        (bool _success,) = address(0xDC2B0D2Dd2b7759D97D50db4eabDC36973110830).call(
+            abi.encodeWithSignature("selfRegister(uint256)", 92)
+        );
+        require(_success, "FeeM registration failed");
+    }
 }
