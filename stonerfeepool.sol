@@ -1453,17 +1453,32 @@ contract StonerFeePool is
         emit Staked(msg.sender, tokenId);
     }
 
-    function unstake(uint256 tokenId) external whenNotPaused {
+    function unstake(uint256 tokenId) external whenNotPaused nonReentrant {
         if (stakerOf[tokenId] != msg.sender) revert NotYourToken();
         
+        // Update rewards before any state changes
+        _updateReward(msg.sender);
+        
+        // 🎯 AUTO-CLAIM REWARDS BEFORE UNSTAKING
+        uint256 reward = rewards[msg.sender];
+        if (reward > 0) {
+            rewards[msg.sender] = 0;
+            totalRewardsClaimed += reward;
+            
+            (bool success, ) = payable(msg.sender).call{value: reward}("");
+            require(success, "Transfer failed");
+            
+            emit RewardClaimed(msg.sender, reward);
+        }
+        
+        // Cleanup staking state
         receiptToken.burn(tokenId);
         delete stakerOf[tokenId];
         isStaked[tokenId] = false;
         _removeFromArray(stakedTokens[msg.sender], tokenId);
         totalStaked--;
         
-        _updateReward(msg.sender);
-        
+        // Return NFT
         stonerNFT.transferFrom(address(this), msg.sender, tokenId);
         
         emit Unstaked(msg.sender, tokenId);
