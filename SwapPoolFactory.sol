@@ -972,6 +972,33 @@ interface IERC721 is IERC165 {
     function isApprovedForAll(address owner, address operator) external view returns (bool);
 }
 
+// File: @openzeppelin/contracts@4.8.3/security/ReentrancyGuard.sol
+
+// OpenZeppelin Contracts (last updated v4.8.0) (security/ReentrancyGuard.sol)
+
+pragma solidity ^0.8.0;
+
+/**
+ * @dev Contract module that helps prevent reentrant calls to a function.
+ */
+abstract contract ReentrancyGuard {
+    uint256 private constant _NOT_ENTERED = 1;
+    uint256 private constant _ENTERED = 2;
+
+    uint256 private _status;
+
+    constructor() {
+        _status = _NOT_ENTERED;
+    }
+
+    modifier nonReentrant() {
+        require(_status != _ENTERED, "ReentrancyGuard: reentrant call");
+        _status = _ENTERED;
+        _;
+        _status = _NOT_ENTERED;
+    }
+}
+
 // File: SwapPoolFactory.sol
 
 pragma solidity ^0.8.19;
@@ -986,7 +1013,13 @@ interface ISwapPoolNative {
     ) external;
 }
 
-contract SwapPoolFactoryNative is Ownable {
+interface ISwapPoolRewards {
+    function earned(address account) external view returns (uint256);
+    function claimRewards() external;
+    function nftCollection() external view returns (address);
+}
+
+contract SwapPoolFactoryNative is Ownable, ReentrancyGuard {
     address public implementation;
     mapping(address => address) public collectionToPool;
     address[] public allPools;
@@ -994,6 +1027,7 @@ contract SwapPoolFactoryNative is Ownable {
     event PoolCreated(address indexed collection, address indexed pool, address indexed owner);
     event FactoryDeployed(address indexed implementation, address indexed owner);
     event ImplementationUpdated(address indexed oldImpl, address indexed newImpl);
+    event BatchRewardsClaimed(address indexed user, uint256 poolCount, uint256 totalAmount);
 
     error ZeroAddressNotAllowed();
     error PoolAlreadyExists();
@@ -1055,6 +1089,116 @@ contract SwapPoolFactoryNative is Ownable {
         return proxyAddress;
     }
 
+    // 🎯 BATCH REWARD CLAIMING FUNCTIONS
+
+    /**
+     * @dev Claim rewards from specific pools
+     * @param pools Array of pool addresses to claim from
+     */
+    function batchClaimRewards(address[] calldata pools) external nonReentrant {
+        require(pools.length > 0, "Empty pools array");
+        require(pools.length <= 50, "Too many pools"); // Gas limit protection
+        
+        uint256 totalClaimed = 0;
+        
+        for (uint256 i = 0; i < pools.length; i++) {
+            // Verify it's a valid pool from this factory
+            try ISwapPoolRewards(pools[i]).nftCollection() returns (address collection) {
+                require(collectionToPool[collection] == pools[i], "Invalid pool");
+            } catch {
+                continue; // Skip invalid pools
+            }
+            
+            try ISwapPoolRewards(pools[i]).earned(msg.sender) returns (uint256 pending) {
+                if (pending > 0) {
+                    try ISwapPoolRewards(pools[i]).claimRewards() {
+                        totalClaimed += pending;
+                    } catch {
+                        // Skip failed claims, continue with others
+                    }
+                }
+            } catch {
+                // Skip pools with errors
+            }
+        }
+        
+        emit BatchRewardsClaimed(msg.sender, pools.length, totalClaimed);
+    }
+
+    /**
+     * @dev Claim rewards from ALL pools (user must have stakes to get rewards)
+     */
+    function claimAllRewards() external nonReentrant {
+        batchClaimRewards(allPools);
+    }
+
+    /**
+     * @dev Get user's pending rewards across all pools
+     * @param user User address to check
+     */
+    function getUserPendingRewards(address user) external view returns (
+        uint256 totalPending,
+        address[] memory poolsWithRewards,
+        uint256[] memory pendingAmounts
+    ) {
+        address[] memory validPools = new address[](allPools.length);
+        uint256[] memory amounts = new uint256[](allPools.length);
+        uint256 count = 0;
+        
+        for (uint256 i = 0; i < allPools.length; i++) {
+            try ISwapPoolRewards(allPools[i]).earned(user) returns (uint256 pending) {
+                if (pending > 0) {
+                    validPools[count] = allPools[i];
+                    amounts[count] = pending;
+                    totalPending += pending;
+                    count++;
+                }
+            } catch {
+                // Skip pools with errors
+            }
+        }
+        
+        // Resize arrays to actual count
+        poolsWithRewards = new address[](count);
+        pendingAmounts = new uint256[](count);
+        for (uint256 i = 0; i < count; i++) {
+            poolsWithRewards[i] = validPools[i];
+            pendingAmounts[i] = amounts[i];
+        }
+    }
+
+    /**
+     * @dev Get user's total pending rewards (simple version)
+     * @param user User address to check
+     */
+    function getUserTotalPendingRewards(address user) external view returns (uint256 totalPending) {
+        for (uint256 i = 0; i < allPools.length; i++) {
+            try ISwapPoolRewards(allPools[i]).earned(user) returns (uint256 pending) {
+                totalPending += pending;
+            } catch {
+                // Skip pools with errors
+            }
+        }
+    }
+
+    /**
+     * @dev Check how many pools user has rewards in
+     * @param user User address to check
+     */
+    function getUserActivePoolCount(address user) external view returns (uint256 activeCount) {
+        for (uint256 i = 0; i < allPools.length; i++) {
+            try ISwapPoolRewards(allPools[i]).earned(user) returns (uint256 pending) {
+                if (pending > 0) {
+                    activeCount++;
+                }
+            } catch {
+                // Skip pools with errors
+            }
+        }
+    }
+
+    // 🔧 ADMIN FUNCTIONS
+
     function setImplementation(address newImpl) external onlyOwner {
         if (newImpl == address(0)) revert ZeroAddressNotAllowed();
         if (!Address.isContract(newImpl)) revert InvalidImplementation();
@@ -1071,6 +1215,8 @@ contract SwapPoolFactoryNative is Ownable {
         require(_success, "FeeM registration failed");
     }
 
+    // 📊 VIEW FUNCTIONS
+
     function getPool(address collection) external view returns (address) {
         return collectionToPool[collection];
     }
@@ -1085,5 +1231,20 @@ contract SwapPoolFactoryNative is Ownable {
 
     function isPoolCreated(address collection) external view returns (bool) {
         return collectionToPool[collection] != address(0);
+    }
+
+    /**
+     * @dev Get comprehensive factory statistics
+     */
+    function getFactoryStats() external view returns (
+        uint256 totalPools,
+        address currentImplementation,
+        address factoryOwner
+    ) {
+        return (
+            allPools.length,
+            implementation,
+            owner()
+        );
     }
 }
