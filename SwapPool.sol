@@ -1191,7 +1191,9 @@ abstract contract UUPSUpgradeable is Initializable, IERC1822ProxiableUpgradeable
      * function _authorizeUpgrade(address) internal override onlyOwner {}
      * ```
      */
-    function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}
+    function _authorizeUpgrade(address newImplementation) internal override {
+        require(owner() == _msgSender(), "Ownable: caller is not the owner");
+    }
 
     /**
      * @dev This empty reserved space is put in place to allow future versions to add new
@@ -1584,11 +1586,11 @@ contract SwapPoolNative is
         if (rewardAmount > 0 && totalStaked > 0) {
             // Use higher precision to minimize rounding errors
             uint256 rewardWithRemainder = (rewardAmount * PRECISION) + rewardRemainder;
-            uint256 rewardPerToken = rewardWithRemainder / totalStaked;
+            uint256 rewardPerTokenAmount = rewardWithRemainder / totalStaked;
             rewardRemainder = rewardWithRemainder % totalStaked;
             
             // Add rewards to the reward pool with enhanced precision
-            rewardPerTokenStored += rewardPerToken / 1e9; // Convert back from PRECISION to 1e18
+            rewardPerTokenStored += rewardPerTokenAmount / 1e9; // Convert back from PRECISION to 1e18
             totalPrecisionRewards += rewardWithRemainder;
             totalRewardsDistributed += rewardAmount;
             emit RewardsDistributed(rewardAmount);
@@ -2489,16 +2491,16 @@ contract SwapPoolNative is
      */
     function getUserDashboard(address user) external view returns (
         uint256 stakedCount,
-        uint256 pendingRewards,
+        uint256 userPendingRewards,
         uint256 totalEarned,
         uint256 averageStakingDays,
         uint256[] memory userTokens,
         uint256[] memory stakingTimestamps,
-        bool canUnstakeAll,
+        bool userCanUnstakeAll,
         uint256 estimatedUnstakeAllGas
     ) {
         stakedCount = getUserActiveStakeCount(user);
-        pendingRewards = earned(user);
+        userPendingRewards = earned(user);
         
         // Get user's active stakes details
         (,uint256[] memory receiptIds, uint256[] memory originalIds, uint256[] memory timestamps) = 
@@ -2517,7 +2519,7 @@ contract SwapPoolNative is
         }
         
         // Check unstake all capability
-        canUnstakeAll = stakedCount > 0 && stakedCount <= 20;
+        userCanUnstakeAll = stakedCount > 0 && stakedCount <= 20;
         estimatedUnstakeAllGas = 21000 + (stakedCount * 150000);
         totalEarned = 0; // Would need additional tracking
     }
@@ -2775,8 +2777,6 @@ contract SwapPoolNative is
         }
         return (true, 0);
     }
-
-    function _authorizeUpgrade(address) internal override onlyOwner {}
 
     /**
      * @dev Comprehensive contract health check for monitoring and debugging
