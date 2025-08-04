@@ -1129,7 +1129,33 @@ contract SwapPoolFactoryNative is Ownable, ReentrancyGuard {
      * @dev Claim rewards from ALL pools (user must have stakes to get rewards)
      */
     function claimAllRewards() external nonReentrant {
-        batchClaimRewards(allPools);
+        require(allPools.length > 0, "No pools available");
+        require(allPools.length <= 50, "Too many pools"); // Gas limit protection
+        
+        uint256 totalClaimed = 0;
+        
+        for (uint256 i = 0; i < allPools.length; i++) {
+            // Verify it's a valid pool from this factory
+            try ISwapPoolRewards(allPools[i]).nftCollection() returns (address collection) {
+                require(collectionToPool[collection] == allPools[i], "Invalid pool");
+            } catch {
+                continue; // Skip invalid pools
+            }
+            
+            try ISwapPoolRewards(allPools[i]).earned(msg.sender) returns (uint256 pending) {
+                if (pending > 0) {
+                    try ISwapPoolRewards(allPools[i]).claimRewards() {
+                        totalClaimed += pending;
+                    } catch {
+                        // Skip failed claims, continue with others
+                    }
+                }
+            } catch {
+                // Skip pools with errors
+            }
+        }
+        
+        emit BatchRewardsClaimed(msg.sender, allPools.length, totalClaimed);
     }
 
     /**
