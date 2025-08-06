@@ -1401,6 +1401,10 @@ contract StonerFeePool is
     uint256 public rewardRemainder;
     uint256 public totalRewardsClaimed;
 
+    // 🎯 ENHANCED PRECISION FOR REWARD CALCULATIONS
+    uint256 private constant PRECISION = 1e27;    // High precision for calculations
+    uint256 private totalPrecisionRewards;        // Total rewards with precision tracking
+
     // 🕒 ENHANCED TIMESTAMP TRACKING FOR REAL ANALYTICS
     struct StakeInfo {
         address staker;          // Who staked this token
@@ -1592,10 +1596,14 @@ contract StonerFeePool is
         if (msg.value == 0) revert ZeroETH();
         if (totalStaked == 0) revert NoStakers();
 
-        uint256 totalValue = msg.value + rewardRemainder;
-        uint256 increment = totalValue / totalStaked;
-        rewardPerTokenStored += increment;
-        rewardRemainder = totalValue % totalStaked;
+        // 🎯 USE HIGH PRECISION FOR BETTER REWARD CALCULATIONS
+        uint256 rewardWithRemainder = (msg.value * PRECISION) + rewardRemainder;
+        uint256 rewardPerTokenAmount = rewardWithRemainder / totalStaked;
+        rewardRemainder = rewardWithRemainder % totalStaked;
+        
+        // Add rewards to the reward pool with enhanced precision
+        rewardPerTokenStored += rewardPerTokenAmount / 1e9; // Convert back from PRECISION to 1e18
+        totalPrecisionRewards += rewardWithRemainder;
 
         emit RewardReceived(msg.sender, msg.value);
     }

@@ -1027,6 +1027,7 @@ contract SwapPoolFactoryNative is Ownable, ReentrancyGuard {
     address[] public allPools;
 
     event PoolCreated(address indexed collection, address indexed pool, address indexed owner);
+    event PoolDeployed(address indexed newPool, address indexed collection, address indexed deployer);
     event FactoryDeployed(address indexed implementation, address indexed owner);
     event ImplementationUpdated(address indexed oldImpl, address indexed newImpl);
     event BatchRewardsClaimed(address indexed user, uint256 poolCount, uint256 totalAmount);
@@ -1088,6 +1089,7 @@ contract SwapPoolFactoryNative is Ownable, ReentrancyGuard {
         allPools.push(proxyAddress);
 
         emit PoolCreated(nftCollection, proxyAddress, msg.sender);
+        emit PoolDeployed(proxyAddress, nftCollection, msg.sender);
         return proxyAddress;
     }
 

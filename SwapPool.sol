@@ -1578,10 +1578,11 @@ contract SwapPoolNative is
         if (stonerShare > 0) {
             stonerAmount = (msg.value * stonerShare) / 100;
             rewardAmount = msg.value - stonerAmount;
-            
-            // Send stoner share immediately
-            payable(stonerPool).sendValue(stonerAmount);
         }
+
+        // 🔄 Update pool token tracking FIRST (CEI pattern)
+        _removeTokenFromPool(tokenIdOut);
+        _addTokenToPool(tokenIdIn);
 
         // 🎯 DISTRIBUTE REMAINING AS REWARDS TO STAKERS (ENHANCED PRECISION)
         if (rewardAmount > 0 && totalStaked > 0) {
@@ -1597,13 +1598,14 @@ contract SwapPoolNative is
             emit RewardsDistributed(rewardAmount);
         }
 
-        // 🔄 Update pool token tracking
-        _removeTokenFromPool(tokenIdOut);
-        _addTokenToPool(tokenIdIn);
-
-        // Execute the swap
+        // Execute the swap - NFT transfers
         IERC721(nftCollection).transferFrom(msg.sender, address(this), tokenIdIn);
         IERC721(nftCollection).transferFrom(address(this), msg.sender, tokenIdOut);
+
+        // External calls LAST (CEI pattern)
+        if (stonerAmount > 0) {
+            payable(stonerPool).sendValue(stonerAmount);
+        }
 
         emit SwapExecuted(msg.sender, tokenIdIn, tokenIdOut, msg.value);
     }
@@ -1934,102 +1936,6 @@ contract SwapPoolNative is
         maxUnstakeAllLimit = newMaxUnstakeAll;
         
         emit BatchLimitsUpdated(newMaxBatchSize, newMaxUnstakeAll);
-    }
-
-    /**
-     * @dev Estimate gas cost for batch unstake operations
-     * @param user The user address to estimate for
-     * @param batchSize Number of stakes to unstake in batch
-     * @return Estimated gas units required
-     */
-    function estimateBatchUnstakeGas(address user, uint256 batchSize) external view returns (uint256) {
-        require(batchSize > 0 && batchSize <= maxBatchSize, "Invalid batch size");
-        
-        uint256[] memory activeStakes = new uint256[](batchSize);
-        uint256 count = 0;
-        
-        // Get user's active stakes up to batch size
-        for (uint256 i = 0; i < userStakes[user].length && count < batchSize; i++) {
-            uint256 receiptId = userStakes[user][i];
-            if (receiptId != 0 && isStakeActive(receiptId)) {
-                activeStakes[count] = receiptId;
-                count++;
-            }
-        }
-        
-        // Base gas per unstake operation + batch overhead
-        uint256 baseGasPerUnstake = 50000; // Estimated gas per unstake
-        uint256 batchOverhead = 30000; // Additional gas for batch processing
-        
-        return (count * baseGasPerUnstake) + batchOverhead;
-    }
-
-    /**
-     * @dev Estimate gas cost for batch stake operations
-     * @param tokenIds Array of token IDs to stake
-     * @return Estimated gas units required
-     */
-    function estimateBatchStakeGas(uint256[] calldata tokenIds) external view returns (uint256) {
-        require(tokenIds.length > 0 && tokenIds.length <= maxBatchSize, "Invalid batch size");
-        
-        // Base gas per stake operation + batch overhead
-        uint256 baseGasPerStake = 80000; // Estimated gas per stake (higher due to transfers)
-        uint256 batchOverhead = 30000; // Additional gas for batch processing
-        
-        return (tokenIds.length * baseGasPerStake) + batchOverhead;
-    }
-
-    /**
-     * @dev Estimate gas cost for batch claim operations
-     * @param user The user address to estimate for
-     * @param batchSize Number of stakes to claim rewards for
-     * @return Estimated gas units required
-     */
-    function estimateBatchClaimGas(address user, uint256 batchSize) external view returns (uint256) {
-        require(batchSize > 0 && batchSize <= maxBatchSize, "Invalid batch size");
-        
-        uint256[] memory activeStakes = new uint256[](batchSize);
-        uint256 count = 0;
-        
-        // Get user's active stakes up to batch size
-        for (uint256 i = 0; i < userStakes[user].length && count < batchSize; i++) {
-            uint256 receiptId = userStakes[user][i];
-            if (receiptId != 0 && isStakeActive(receiptId)) {
-                activeStakes[count] = receiptId;
-                count++;
-            }
-        }
-        
-        // Base gas per claim operation + batch overhead
-        uint256 baseGasPerClaim = 40000; // Estimated gas per claim
-        uint256 batchOverhead = 25000; // Additional gas for batch processing
-        
-        return (count * baseGasPerClaim) + batchOverhead;
-    }
-
-    /**
-     * @dev Estimate gas cost for unstake all operation
-     * @param user The user address to estimate for
-     * @return Estimated gas units required
-     */
-    function estimateUnstakeAllGas(address user) external view returns (uint256) {
-        uint256 activeCount = 0;
-        
-        // Count active stakes
-        for (uint256 i = 0; i < userStakes[user].length; i++) {
-            uint256 receiptId = userStakes[user][i];
-            if (receiptId != 0 && isStakeActive(receiptId)) {
-                activeCount++;
-            }
-        }
-        
-        require(activeCount <= maxUnstakeAllLimit, "Too many stakes for gas estimation");
-        
-        // Base gas per unstake + additional overhead for unstake all
-        uint256 baseGasPerUnstake = 50000;
-        uint256 unstakeAllOverhead = 40000; // Higher overhead for processing all stakes
-        
-        return (activeCount * baseGasPerUnstake) + unstakeAllOverhead;
     }
 
     function pause() external onlyOwner {
@@ -2418,27 +2324,25 @@ contract SwapPoolNative is
         bool canSwap,
         string memory reason,
         uint256 feeRequired,
-        uint256 estimatedGas,
         uint256 rewardImpact
     ) {
         canSwap = false;
         reason = "Unknown error";
         feeRequired = swapFeeInWei;
-        estimatedGas = 200000;
         
         if (tokenIdIn == tokenIdOut) {
             reason = "Cannot swap same token";
-            return (canSwap, reason, feeRequired, estimatedGas, rewardImpact);
+            return (canSwap, reason, feeRequired, rewardImpact);
         }
         
         if (IERC721(nftCollection).ownerOf(tokenIdOut) != address(this)) {
             reason = "Target token not available";
-            return (canSwap, reason, feeRequired, estimatedGas, rewardImpact);
+            return (canSwap, reason, feeRequired, rewardImpact);
         }
         
         if (!tokenInPool[tokenIdOut]) {
             reason = "Target token not in swappable pool";
-            return (canSwap, reason, feeRequired, estimatedGas, rewardImpact);
+            return (canSwap, reason, feeRequired, rewardImpact);
         }
         
         canSwap = true;
@@ -2456,10 +2360,9 @@ contract SwapPoolNative is
      * @dev Check if user can unstake all their stakes in one transaction
      * @param user User address
      */
-    function canUnstakeAll(address user) external view returns (bool canUnstake, uint256 activeStakes, uint256 estimatedGas) {
+    function canUnstakeAll(address user) external view returns (bool canUnstake, uint256 activeStakes) {
         activeStakes = getUserActiveStakeCount(user);
         canUnstake = activeStakes > 0 && activeStakes <= 20;
-        estimatedGas = 21000 + (activeStakes * 150000);
     }
 
     // 🎯 ENHANCED UI/UX FUNCTIONS FOR BETTER FRONTEND INTEGRATION
@@ -2569,7 +2472,6 @@ contract SwapPoolNative is
         uint256[] memory userOwnedTokens,
         uint256[] memory swappableTokens,
         uint256 swapFee,
-        uint256 estimatedGasSwap,
         bool poolActive
     ) {
         // Note: In production, you'd implement a more efficient way to get user tokens
@@ -2577,7 +2479,6 @@ contract SwapPoolNative is
         
         swappableTokens = poolTokens;
         swapFee = swapFeeInWei;
-        estimatedGasSwap = 200000;
         poolActive = !paused() && poolTokens.length >= MIN_POOL_SIZE;
         
         userOwnedTokens = new uint256[](0); // Simplified - would need proper enumeration
