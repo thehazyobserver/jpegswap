@@ -1026,11 +1026,29 @@ contract SwapPoolFactoryNative is Ownable, ReentrancyGuard {
     mapping(address => address) public collectionToPool;
     address[] public allPools;
 
+    // 📊 THE GRAPH ANALYTICS - Enhanced Events for Pool Management
     event PoolCreated(address indexed collection, address indexed pool, address indexed owner);
     event PoolDeployed(address indexed newPool, address indexed collection, address indexed deployer);
     event FactoryDeployed(address indexed implementation, address indexed owner);
     event ImplementationUpdated(address indexed oldImpl, address indexed newImpl);
     event BatchRewardsClaimed(address indexed user, uint256 poolCount, uint256 totalAmount);
+    
+    // Enhanced analytics events for The Graph
+    event PoolCreatedWithDetails(
+        address indexed collection,
+        address indexed pool,
+        address indexed owner,
+        uint256 swapFee,
+        uint256 stonerShare,
+        uint256 timestamp
+    );
+    
+    event PoolActivity(
+        address indexed pool,
+        address indexed collection,
+        uint256 timestamp,
+        string activityType
+    );
 
     error ZeroAddressNotAllowed();
     error PoolAlreadyExists();
@@ -1090,6 +1108,17 @@ contract SwapPoolFactoryNative is Ownable, ReentrancyGuard {
 
         emit PoolCreated(nftCollection, proxyAddress, msg.sender);
         emit PoolDeployed(proxyAddress, nftCollection, msg.sender);
+        
+        // Enhanced analytics event for The Graph
+        emit PoolCreatedWithDetails(
+            nftCollection,
+            proxyAddress,
+            msg.sender,
+            swapFeeInWei,
+            stonerShare,
+            block.timestamp
+        );
+        
         return proxyAddress;
     }
 
@@ -1438,6 +1467,8 @@ contract SwapPoolFactoryNative is Ownable, ReentrancyGuard {
 
     /**
      * @dev Get detailed analytics across all pools for dashboard
+     * @notice For production use, analytics should be queried from The Graph Protocol
+     * for better performance and real-time data. This function provides basic fallback.
      */
     function getGlobalAnalytics() external view returns (
         uint256 totalValueLocked,      // Total NFTs across all pools

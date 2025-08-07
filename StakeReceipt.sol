@@ -1765,9 +1765,27 @@ contract StakeReceipt is ERC721Enumerable, Ownable {
     
     uint256 private _currentReceiptId;
 
+    // 📊 THE GRAPH ANALYTICS - Enhanced Events
     event BaseURIUpdated(string newBaseURI);
     event PoolSet(address pool);
     event ReceiptBurned(address indexed user, uint256 indexed receiptTokenId, uint256 indexed originalTokenId);
+    
+    // Enhanced analytics events for The Graph
+    event ReceiptMinted(
+        address indexed user,
+        address indexed pool,
+        uint256 indexed receiptTokenId,
+        uint256 originalTokenId,
+        uint256 timestamp
+    );
+    
+    event ReceiptActivity(
+        address indexed user,
+        address indexed pool,
+        uint256 indexed receiptTokenId,
+        string action, // "minted", "burned", "transferred"
+        uint256 timestamp
+    );
 
     error OnlyPool();
     error NonTransferable();
@@ -1802,6 +1820,10 @@ contract StakeReceipt is ERC721Enumerable, Ownable {
         
         _mint(to, receiptTokenId);
         
+        // Enhanced analytics event for The Graph
+        emit ReceiptMinted(to, pool, receiptTokenId, originalTokenId, block.timestamp);
+        emit ReceiptActivity(to, pool, receiptTokenId, "minted", block.timestamp);
+        
         return receiptTokenId;
     }
 
@@ -1815,6 +1837,16 @@ contract StakeReceipt is ERC721Enumerable, Ownable {
         // delete receiptMinter[receiptTokenId];
         
         emit ReceiptBurned(owner, receiptTokenId, originalTokenId);
+        
+        // 📊 Enhanced Analytics Events for The Graph Protocol
+        emit ReceiptActivity(
+            owner,              // user who owned the receipt
+            msg.sender,         // pool address
+            receiptTokenId,
+            "burned",
+            block.timestamp
+        );
+        
         _burn(receiptTokenId);
     }
 

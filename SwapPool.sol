@@ -1448,19 +1448,11 @@ contract SwapPoolNative is
     uint256[] private _batchReceiptTokens;
     uint256[] private _batchReturnedTokens;
 
-    // 📊 REAL ANALYTICS TRACKING (replacing placeholders)
-    uint256 public last24hVolumeWei;              // 24h volume in wei
-    uint256 public last24hTimestamp;              // Timestamp for 24h window
-    mapping(address => bool) public uniqueUsers;   // Track unique users
-    uint256 public totalUniqueUsers;              // Count of unique users
-    uint256 public totalSwapVolume;               // All-time swap volume
-    uint256 public totalSwapsExecuted;            // Total number of swaps
-    
-    // Per-user analytics tracking
-    mapping(address => uint256) public userSwapsCount;      // Number of swaps per user
-    mapping(address => uint256) public userTotalSwapVolume; // Total volume per user (in wei)
+    // 📊 THE GRAPH ANALYTICS - Minimal Storage, Events First
+    // Track first-time users for analytics (minimal storage)
+    mapping(address => bool) private _hasSwapped;
 
-    // Events
+    // Simplified Events (backwards compatible)
     event SwapExecuted(address indexed user, uint256 tokenIdIn, uint256 tokenIdOut, uint256 feePaid);
     event BatchSwapExecuted(address indexed user, uint256 swapCount, uint256 totalFeePaid);
     event Staked(address indexed user, uint256 tokenId, uint256 receiptTokenId);
@@ -1468,6 +1460,11 @@ contract SwapPoolNative is
     event BatchUnstaked(address indexed user, uint256[] receiptTokenIds, uint256[] tokensReceived);
     event RewardsClaimed(address indexed user, uint256 amount);
     event RewardsDistributed(uint256 amount);
+    
+    // Enhanced events for The Graph (additional analytics)
+    event UserFirstSwap(address indexed user, address indexed pool, uint256 timestamp);
+    event VolumeUpdate(address indexed pool, uint256 swapVolume, uint256 timestamp);
+    event StakingAnalytics(address indexed user, address indexed pool, uint256 tokenId, uint256 duration, string action);
     event SwapFeeUpdated(uint256 newFeeInWei);
     event StonerShareUpdated(uint256 newShare);
     event BatchLimitsUpdated(uint256 newMaxBatchSize, uint256 newMaxUnstakeAll);
@@ -1628,8 +1625,8 @@ contract SwapPoolNative is
         uint256 contractBalanceAfter = IERC721(nftCollection).balanceOf(address(this));
         require(contractBalanceAfter == contractBalanceBefore, "Flashloan protection: balance mismatch");
 
-        // 📊 UPDATE ANALYTICS TRACKING
-        _updateSwapAnalytics(msg.sender, msg.value, 1);
+        // 📊 THE GRAPH ANALYTICS - Emit events for offchain tracking
+        _emitSwapAnalytics(msg.sender, msg.value, 1);
 
         emit SwapExecuted(msg.sender, tokenIdIn, tokenIdOut, msg.value);
     }
@@ -1727,8 +1724,8 @@ contract SwapPoolNative is
         uint256 contractBalanceAfter = IERC721(nftCollection).balanceOf(address(this));
         require(contractBalanceAfter == contractBalanceBefore, "Flashloan protection: balance mismatch");
 
-        // 📊 UPDATE ANALYTICS TRACKING
-        _updateSwapAnalytics(msg.sender, msg.value, tokenIdsIn.length);
+        // 📊 THE GRAPH ANALYTICS - Emit events for offchain tracking
+        _emitSwapAnalytics(msg.sender, msg.value, tokenIdsIn.length);
 
         // Emit batch completion event
         emit BatchSwapExecuted(msg.sender, tokenIdsIn.length, msg.value);
@@ -1763,10 +1760,10 @@ contract SwapPoolNative is
         userStakes[msg.sender].push(receiptTokenId);
         totalStaked++;
 
-        // 📊 TRACK UNIQUE USERS FOR ANALYTICS
-        if (!uniqueUsers[msg.sender]) {
-            uniqueUsers[msg.sender] = true;
-            totalUniqueUsers++;
+        // 📊 THE GRAPH ANALYTICS - Track first-time users
+        if (!_hasSwapped[msg.sender]) {
+            _hasSwapped[msg.sender] = true;
+            emit UserFirstSwap(msg.sender, address(this), block.timestamp);
         }
 
         emit Staked(msg.sender, tokenId, receiptTokenId);
@@ -1998,30 +1995,17 @@ contract SwapPoolNative is
     }
 
     /**
-     * @dev Update analytics tracking for swaps
+     * @dev Emit analytics events for The Graph (gas optimized)
      */
-    function _updateSwapAnalytics(address user, uint256 swapValue, uint256 swapCount) internal {
-        // Track unique users
-        if (!uniqueUsers[user]) {
-            uniqueUsers[user] = true;
-            totalUniqueUsers++;
+    function _emitSwapAnalytics(address user, uint256 swapValue, uint256 /*swapCount*/) internal {
+        // Track first-time users
+        if (!_hasSwapped[user]) {
+            _hasSwapped[user] = true;
+            emit UserFirstSwap(user, address(this), block.timestamp);
         }
         
-        // Update 24h volume (reset if more than 24h passed)
-        if (block.timestamp > last24hTimestamp + 86400) {
-            last24hVolumeWei = swapValue;
-            last24hTimestamp = block.timestamp;
-        } else {
-            last24hVolumeWei += swapValue;
-        }
-        
-        // Update totals
-        totalSwapVolume += swapValue;
-        totalSwapsExecuted += swapCount;
-        
-        // Update user-specific analytics
-        userSwapsCount[user] += swapCount;
-        userTotalSwapVolume[user] += swapValue;
+        // Emit volume update for The Graph tracking
+        emit VolumeUpdate(address(this), swapValue, block.timestamp);
     }
 
     // 📊 COMPLETE REWARD CALCULATION FUNCTIONS
@@ -2241,8 +2225,8 @@ contract SwapPoolNative is
             earned(user),
             activeCount > 0 ? totalStakingTime / activeCount : 0,
             activeStakes,
-            userSwapsCount[user], // Use real analytics
-            userTotalSwapVolume[user]  // Use real analytics
+            0, // Analytics moved to The Graph - query offchain
+            0  // Analytics moved to The Graph - query offchain
         );
     }
 
@@ -2275,7 +2259,7 @@ contract SwapPoolNative is
             activeStakes = new uint256[](0);
             hasMore = false;
             return (0, 0, earned(user), 0, activeStakes, 
-                   userSwapsCount[user], userTotalSwapVolume[user], totalStakes, hasMore);
+                   0, 0, totalStakes, hasMore); // Analytics moved to The Graph
         }
         
         uint256 end = offset + limit;
@@ -2309,8 +2293,8 @@ contract SwapPoolNative is
             earned(user),
             activeCount > 0 ? totalStakingTime / activeCount : 0,
             activeStakes,
-            userSwapsCount[user],
-            userTotalSwapVolume[user],
+            0, // Analytics moved to The Graph - query offchain
+            0, // Analytics moved to The Graph - query offchain
             totalStakes,
             hasMore
         );

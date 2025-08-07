@@ -1422,11 +1422,28 @@ contract StonerFeePool is
     mapping(address => uint256) public rewards;
     mapping(address => uint256) public userRewardPerTokenPaid;
 
+    // 📊 THE GRAPH ANALYTICS - Enhanced Events
     event Staked(address indexed user, uint256 indexed tokenId);
     event Unstaked(address indexed user, uint256 indexed returnedTokenId);
     event RewardReceived(address indexed sender, uint256 amount);
     event RewardClaimed(address indexed user, uint256 amount);
     event EmergencyUnstake(uint256 indexed tokenId, address indexed to);
+    
+    // Enhanced analytics events for The Graph
+    event StonerStakeActivity(
+        address indexed user,
+        uint256 indexed tokenId,
+        string action, // "stake" or "unstake"
+        uint256 timestamp,
+        uint256 stakingDuration // 0 for stake, duration for unstake
+    );
+    
+    event StonerRewardActivity(
+        address indexed user,
+        uint256 amount,
+        uint256 timestamp,
+        string activityType // "received" or "claimed"
+    );
 
     error NotStaked();
     error AlreadyStaked();
@@ -1474,6 +1491,7 @@ contract StonerFeePool is
         totalStaked++;
         
         emit Staked(msg.sender, tokenId);
+        emit StonerStakeActivity(msg.sender, tokenId, "stake", block.timestamp, 0);
     }
 
     function stakeMultiple(uint256[] calldata tokenIds) external whenNotPaused {
@@ -1513,6 +1531,7 @@ contract StonerFeePool is
             totalStaked++;
             
             emit Staked(msg.sender, tokenId);
+            emit StonerStakeActivity(msg.sender, tokenId, "stake", block.timestamp, 0);
         }
     }
 
@@ -1537,6 +1556,13 @@ contract StonerFeePool is
         stonerNFT.safeTransferFrom(address(this), msg.sender, tokenId);
         
         emit Unstaked(msg.sender, tokenId);
+        emit StonerStakeActivity(
+            msg.sender, 
+            tokenId, 
+            "unstake", 
+            block.timestamp, 
+            block.timestamp - stakeInfos[tokenId].stakedAt
+        );
     }
 
     function unstakeMultiple(uint256[] calldata tokenIds) external whenNotPaused nonReentrant {
@@ -1571,6 +1597,13 @@ contract StonerFeePool is
             
             stonerNFT.safeTransferFrom(address(this), msg.sender, tokenId);
             emit Unstaked(msg.sender, tokenId);
+            emit StonerStakeActivity(
+                msg.sender, 
+                tokenId, 
+                "unstake", 
+                block.timestamp, 
+                block.timestamp - stakeInfos[tokenId].stakedAt
+            );
         }
     }
 
@@ -1588,6 +1621,7 @@ contract StonerFeePool is
         totalPrecisionRewards += rewardWithRemainder;
 
         emit RewardReceived(msg.sender, msg.value);
+        emit StonerRewardActivity(msg.sender, msg.value, block.timestamp, "received");
     }
 
     function claimNative() external nonReentrant {
