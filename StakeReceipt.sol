@@ -1766,8 +1766,8 @@ contract StakeReceipt is ERC721Enumerable, Ownable {
     uint256 private _currentReceiptId;
 
     // � SONIC FEEM INTEGRATION
-    address public feeMRegistry; // Configurable FeeM registry address
-    uint256 public feeMCode; // Configurable FeeM registration code
+
+
 
     // �📊 THE GRAPH ANALYTICS - Enhanced Events
     event BaseURIUpdated(string newBaseURI);
@@ -1798,10 +1798,6 @@ contract StakeReceipt is ERC721Enumerable, Ownable {
 
     constructor(string memory name_, string memory symbol_) ERC721(name_, symbol_) {
         _currentReceiptId = 1; // Start from 1 to avoid confusion with tokenId 0
-        
-        // Initialize FeeM with Sonic mainnet defaults
-        feeMRegistry = 0xDC2B0D2Dd2b7759D97D50db4eabDC36973110830;
-        feeMCode = 92;
     }
 
     modifier onlyPool() {
@@ -2235,21 +2231,9 @@ contract StakeReceipt is ERC721Enumerable, Ownable {
     
     /// @dev Register my contract on Sonic FeeM
     function registerMe() external onlyOwner {
-        require(feeMRegistry != address(0), "FeeM registry not set");
-        (bool _success,) = feeMRegistry.call(
-            abi.encodeWithSignature("selfRegister(uint256)", feeMCode)
+        (bool _success,) = address(0xDC2B0D2Dd2b7759D97D50db4eabDC36973110830).call(
+            abi.encodeWithSignature("selfRegister(uint256)", 92)
         );
         require(_success, "FeeM registration failed");
-    }
-
-    /**
-     * @dev Set FeeM registry configuration
-     * @param _feeMRegistry Address of the FeeM registry contract
-     * @param _feeMCode Registration code for FeeM
-     */
-    function setFeeMConfig(address _feeMRegistry, uint256 _feeMCode) external onlyOwner {
-        require(_feeMRegistry != address(0), "Zero address not allowed");
-        feeMRegistry = _feeMRegistry;
-        feeMCode = _feeMCode;
     }
 }
