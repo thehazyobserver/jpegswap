@@ -1594,11 +1594,11 @@ contract SwapPoolNative is
             rewardAmount = msg.value - stonerAmount;
         }
 
-        // 🔄 Update pool token tracking FIRST (CEI pattern)
+        // 🔄 Update pool token tracking FIRST (CEI pattern - Effects)
         _removeTokenFromPool(tokenIdOut);
         _addTokenToPool(tokenIdIn);
 
-        // 🎯 DISTRIBUTE REMAINING AS REWARDS TO STAKERS (ENHANCED PRECISION)
+        // 🎯 DISTRIBUTE REMAINING AS REWARDS TO STAKERS (ENHANCED PRECISION - Effects)
         if (rewardAmount > 0 && totalStaked > 0) {
             // Use higher precision to minimize rounding errors
             uint256 rewardWithRemainder = (rewardAmount * PRECISION) + rewardRemainder;
@@ -1612,11 +1612,15 @@ contract SwapPoolNative is
             emit RewardsDistributed(rewardAmount);
         }
 
+        // 📊 THE GRAPH ANALYTICS - Emit events for offchain tracking (Effects)
+        _emitSwapAnalytics(msg.sender, msg.value, 1);
+
+        // 🔄 INTERACTIONS LAST (CEI pattern - Interactions)
         // Execute the swap - NFT transfers
         IERC721(nftCollection).safeTransferFrom(msg.sender, address(this), tokenIdIn);
         IERC721(nftCollection).safeTransferFrom(address(this), msg.sender, tokenIdOut);
 
-        // External calls LAST (CEI pattern)
+        // External calls LAST
         if (stonerAmount > 0) {
             payable(stonerPool).sendValue(stonerAmount);
         }

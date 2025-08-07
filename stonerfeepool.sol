@@ -1379,6 +1379,7 @@ interface IERC721Upgradeable is IERC165Upgradeable {
 
 pragma solidity ^0.8.19;
 
+import "@openzeppelin/contracts-upgradeable/utils/structs/EnumerableSetUpgradeable.sol";
 
 interface IStakeReceipt {
     function mint(address to, uint256 originalTokenId) external returns (uint256);
@@ -1421,6 +1422,10 @@ contract StonerFeePool is
 
     mapping(address => uint256) public rewards;
     mapping(address => uint256) public userRewardPerTokenPaid;
+
+    // 🎯 UNIQUE STAKER TRACKING WITH ENUMERABLESET
+    using EnumerableSetUpgradeable for EnumerableSetUpgradeable.AddressSet;
+    EnumerableSetUpgradeable.AddressSet private uniqueStakers;
 
     // 📊 THE GRAPH ANALYTICS - Enhanced Events
     event Staked(address indexed user, uint256 indexed tokenId);
@@ -1484,6 +1489,9 @@ contract StonerFeePool is
             active: true
         });
         
+        // 🎯 TRACK UNIQUE STAKERS
+        uniqueStakers.add(msg.sender);
+        
         // Mint receipt token (ignore return value for simplicity in StonerFeePool)
         receiptToken.mint(msg.sender, tokenId);
         
@@ -1510,6 +1518,9 @@ contract StonerFeePool is
         
         // Update rewards once for the user
         _updateReward(msg.sender);
+        
+        // 🎯 TRACK UNIQUE STAKERS
+        uniqueStakers.add(msg.sender);
         
         // Process all stakes
         for (uint256 i = 0; i < tokenIdsLength; i++) {
@@ -1617,7 +1628,7 @@ contract StonerFeePool is
         rewardRemainder = rewardWithRemainder % totalStaked;
         
         // Add rewards to the reward pool with enhanced precision
-        rewardPerTokenStored += rewardPerTokenAmount / 1e9; // Convert back from PRECISION to 1e18
+        rewardPerTokenStored += rewardPerTokenAmount / (PRECISION / 1e18); // Proper precision conversion
         totalPrecisionRewards += rewardWithRemainder;
 
         emit RewardReceived(msg.sender, msg.value);
@@ -1735,7 +1746,14 @@ contract StonerFeePool is
     function pause() external onlyOwner { _pause(); }
     function unpause() external onlyOwner { _unpause(); }
 
-    // 📊 VIEW FUNCTIONS
+    // � EMERGENCY ETH WITHDRAWAL
+    function emergencyWithdrawETH() external onlyOwner {
+        uint256 balance = address(this).balance;
+        require(balance > 0, "No ETH to withdraw");
+        payable(owner()).transfer(balance);
+    }
+
+    // �📊 VIEW FUNCTIONS
     function getStakedTokens(address user) external view returns (uint256[] memory) {
         return stakedTokens[user];
     }

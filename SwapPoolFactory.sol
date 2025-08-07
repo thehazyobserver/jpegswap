@@ -1546,6 +1546,13 @@ contract SwapPoolFactoryNative is Ownable, ReentrancyGuard {
         }
     }
 
+    // 🚨 EMERGENCY ETH WITHDRAWAL
+    function emergencyWithdrawETH() external onlyOwner {
+        uint256 balance = address(this).balance;
+        require(balance > 0, "No ETH to withdraw");
+        payable(owner()).transfer(balance);
+    }
+
     function updateImplementation(address newImplementation) external onlyOwner {
         if (newImplementation == address(0)) revert ZeroAddressNotAllowed();
         if (!Address.isContract(newImplementation)) revert InvalidImplementation();
