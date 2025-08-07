@@ -1455,7 +1455,7 @@ contract StonerFeePool is
     function stake(uint256 tokenId) external whenNotPaused {
         if (isStaked[tokenId]) revert AlreadyStaked();
         
-        stonerNFT.transferFrom(msg.sender, address(this), tokenId);
+        stonerNFT.safeTransferFrom(msg.sender, address(this), tokenId);
         isStaked[tokenId] = true;
         stakerOf[tokenId] = msg.sender;
         stakedTokens[msg.sender].push(tokenId);
@@ -1482,6 +1482,9 @@ contract StonerFeePool is
         require(tokenIdsLength <= 10, "Too many tokens"); // Gas protection
         
         // Verify all tokens are not already staked and user owns them
+        // Check for duplicates first
+        _checkForDuplicates(tokenIds);
+        
         for (uint256 i = 0; i < tokenIdsLength; i++) {
             if (isStaked[tokenIds[i]]) revert AlreadyStaked();
             if (stonerNFT.ownerOf(tokenIds[i]) != msg.sender) revert NotYourToken();
@@ -1494,7 +1497,7 @@ contract StonerFeePool is
         for (uint256 i = 0; i < tokenIdsLength; i++) {
             uint256 tokenId = tokenIds[i];
             
-            stonerNFT.transferFrom(msg.sender, address(this), tokenId);
+            stonerNFT.safeTransferFrom(msg.sender, address(this), tokenId);
             isStaked[tokenId] = true;
             stakerOf[tokenId] = msg.sender;
             stakedTokens[msg.sender].push(tokenId);
@@ -1543,7 +1546,7 @@ contract StonerFeePool is
         totalStaked--;
         
         // Return NFT
-        stonerNFT.transferFrom(address(this), msg.sender, tokenId);
+        stonerNFT.safeTransferFrom(address(this), msg.sender, tokenId);
         
         emit Unstaked(msg.sender, tokenId);
     }
@@ -1554,6 +1557,9 @@ contract StonerFeePool is
         
         // Verify ownership of all tokens first
         uint256 tokenIdsLength = tokenIds.length; // Gas optimization: cache array length
+        // Check for duplicates first
+        _checkForDuplicates(tokenIds);
+        
         for (uint256 i = 0; i < tokenIdsLength; i++) {
             if (stakerOf[tokenIds[i]] != msg.sender) revert NotYourToken();
         }
@@ -1587,7 +1593,7 @@ contract StonerFeePool is
             _removeFromArray(stakedTokens[msg.sender], tokenId);
             totalStaked--;
             
-            stonerNFT.transferFrom(address(this), msg.sender, tokenId);
+            stonerNFT.safeTransferFrom(address(this), msg.sender, tokenId);
             emit Unstaked(msg.sender, tokenId);
         }
     }
@@ -1654,6 +1660,17 @@ contract StonerFeePool is
         }
     }
 
+    /**
+     * @dev Check for duplicate token IDs in array to prevent user errors
+     */
+    function _checkForDuplicates(uint256[] calldata tokenIds) internal pure {
+        for (uint256 i = 0; i < tokenIds.length; i++) {
+            for (uint256 j = i + 1; j < tokenIds.length; j++) {
+                require(tokenIds[i] != tokenIds[j], "Duplicate token ID found");
+            }
+        }
+    }
+
     // 🔧 ADMIN FUNCTIONS
     function emergencyUnstake(uint256 tokenId, address to) external onlyOwner {
         if (!isStaked[tokenId]) revert NotStaked();
@@ -1666,7 +1683,7 @@ contract StonerFeePool is
             totalStaked--;
         }
         
-        stonerNFT.transferFrom(address(this), to, tokenId);
+        stonerNFT.safeTransferFrom(address(this), to, tokenId);
         emit EmergencyUnstake(tokenId, to);
     }
 
@@ -1694,7 +1711,7 @@ contract StonerFeePool is
             totalStaked--;
         }
         
-        stonerNFT.transferFrom(address(this), owner(), tokenId);
+        stonerNFT.safeTransferFrom(address(this), owner(), tokenId);
         emit EmergencyUnstake(tokenId, owner());
     }
 

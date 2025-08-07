@@ -1406,7 +1406,7 @@ contract SwapPoolNative is
     bool public initialized;
 
     // 🎯 LIQUIDITY MANAGEMENT
-    uint256 public constant MIN_POOL_SIZE = 5; // Minimum tokens required for swaps
+    uint256 public minPoolSize = 5; // Minimum tokens required for swaps (configurable)
     
     // 🎯 CONFIGURABLE BATCH LIMITS
     uint256 public maxBatchSize = 10;           // Configurable batch operation limit
@@ -1459,6 +1459,7 @@ contract SwapPoolNative is
     event SwapFeeUpdated(uint256 newFeeInWei);
     event StonerShareUpdated(uint256 newShare);
     event BatchLimitsUpdated(uint256 newMaxBatchSize, uint256 newMaxUnstakeAll);
+    event MinPoolSizeUpdated(uint256 oldMinPoolSize, uint256 newMinPoolSize);
 
     // Enhanced batch operation events
     event BatchOperationStarted(address indexed user, string operationType, uint256 requestedCount);
@@ -1506,7 +1507,7 @@ contract SwapPoolNative is
 
     // � LIQUIDITY PROTECTION MODIFIER
     modifier minimumLiquidity() {
-        require(poolTokens.length >= MIN_POOL_SIZE, "Insufficient liquidity");
+        require(poolTokens.length >= minPoolSize, "Insufficient liquidity");
         _;
     }
 
@@ -1600,8 +1601,8 @@ contract SwapPoolNative is
         }
 
         // Execute the swap - NFT transfers
-        IERC721(nftCollection).transferFrom(msg.sender, address(this), tokenIdIn);
-        IERC721(nftCollection).transferFrom(address(this), msg.sender, tokenIdOut);
+        IERC721(nftCollection).safeTransferFrom(msg.sender, address(this), tokenIdIn);
+        IERC721(nftCollection).safeTransferFrom(address(this), msg.sender, tokenIdOut);
 
         // External calls LAST (CEI pattern)
         if (stonerAmount > 0) {
@@ -1629,6 +1630,10 @@ contract SwapPoolNative is
         require(tokenIdsIn.length > 0 && tokenIdsOut.length > 0, "Empty arrays");
         require(tokenIdsIn.length == tokenIdsOut.length, "Array length mismatch");
         require(tokenIdsIn.length <= maxBatchSize, "Exceeds batch limit");
+        
+        // 🔍 DUPLICATE DETECTION
+        _checkForDuplicates(tokenIdsIn);
+        _checkForDuplicates(tokenIdsOut);
         
         uint256 totalFeeRequired = swapFeeInWei * tokenIdsIn.length;
         if (msg.value != totalFeeRequired) revert IncorrectFee();
@@ -1681,8 +1686,8 @@ contract SwapPoolNative is
 
         // Execute all swaps - NFT transfers
         for (uint256 i = 0; i < tokenIdsIn.length; i++) {
-            IERC721(nftCollection).transferFrom(msg.sender, address(this), tokenIdsIn[i]);
-            IERC721(nftCollection).transferFrom(address(this), msg.sender, tokenIdsOut[i]);
+            IERC721(nftCollection).safeTransferFrom(msg.sender, address(this), tokenIdsIn[i]);
+            IERC721(nftCollection).safeTransferFrom(address(this), msg.sender, tokenIdsOut[i]);
             
             // Emit event for each swap in the batch
             emit SwapExecuted(msg.sender, tokenIdsIn[i], tokenIdsOut[i], swapFeeInWei);
@@ -1706,7 +1711,7 @@ contract SwapPoolNative is
         updateReward(msg.sender)
     {
         // Transfer NFT to pool
-        IERC721(nftCollection).transferFrom(msg.sender, address(this), tokenId);
+        IERC721(nftCollection).safeTransferFrom(msg.sender, address(this), tokenId);
         
         // Add to pool tracking
         _addTokenToPool(tokenId);
@@ -1862,7 +1867,7 @@ contract SwapPoolNative is
         _removeTokenFromPool(tokenToReturn);
         
         // Return NFT
-        IERC721(nftCollection).transferFrom(address(this), msg.sender, tokenToReturn);
+        IERC721(nftCollection).safeTransferFrom(address(this), msg.sender, tokenToReturn);
 
         // Track for batch operations or emit individual event
         if (_inBatchOperation) {
@@ -1951,6 +1956,17 @@ contract SwapPoolNative is
         return poolTokens[randomIndex];
     }
 
+    /**
+     * @dev Check for duplicate token IDs in array to prevent user errors
+     */
+    function _checkForDuplicates(uint256[] calldata tokenIds) internal pure {
+        for (uint256 i = 0; i < tokenIds.length; i++) {
+            for (uint256 j = i + 1; j < tokenIds.length; j++) {
+                require(tokenIds[i] != tokenIds[j], "Duplicate token ID found");
+            }
+        }
+    }
+
     // 📊 COMPLETE REWARD CALCULATION FUNCTIONS
 
     /**
@@ -2025,6 +2041,18 @@ contract SwapPoolNative is
         emit BatchLimitsUpdated(newMaxBatchSize, newMaxUnstakeAll);
     }
 
+    /**
+     * @dev Set minimum pool size for swaps
+     */
+    function setMinPoolSize(uint256 newMinPoolSize) external onlyOwner {
+        require(newMinPoolSize > 0 && newMinPoolSize <= 20, "Invalid min pool size");
+        
+        uint256 oldMinPoolSize = minPoolSize;
+        minPoolSize = newMinPoolSize;
+        
+        emit MinPoolSizeUpdated(oldMinPoolSize, newMinPoolSize);
+    }
+
     function pause() external onlyOwner {
         _pause();
     }
@@ -2034,7 +2062,7 @@ contract SwapPoolNative is
     }
 
     function emergencyWithdraw(uint256 tokenId) external onlyOwner {
-        IERC721(nftCollection).transferFrom(address(this), owner(), tokenId);
+        IERC721(nftCollection).safeTransferFrom(address(this), owner(), tokenId);
     }
 
     function emergencyWithdrawETH() external onlyOwner {
@@ -2044,7 +2072,7 @@ contract SwapPoolNative is
     function emergencyWithdrawBatch(uint256[] calldata tokenIds) external onlyOwner {
         uint256 tokenIdsLength = tokenIds.length; // Gas optimization: cache array length
         for (uint256 i = 0; i < tokenIdsLength; i++) {
-            IERC721(nftCollection).transferFrom(address(this), owner(), tokenIds[i]);
+            IERC721(nftCollection).safeTransferFrom(address(this), owner(), tokenIds[i]);
         }
     }
 
@@ -2602,7 +2630,7 @@ contract SwapPoolNative is
         uint256 healthScore
     ) {
         isActive = !paused();
-        hasLiquidity = poolTokens.length >= MIN_POOL_SIZE;
+        hasLiquidity = poolTokens.length >= minPoolSize;
         acceptingStakes = !paused() && initialized;
         
         if (!isActive) {
@@ -2637,7 +2665,7 @@ contract SwapPoolNative is
         
         swappableTokens = poolTokens;
         swapFee = swapFeeInWei;
-        poolActive = !paused() && poolTokens.length >= MIN_POOL_SIZE;
+        poolActive = !paused() && poolTokens.length >= minPoolSize;
         
         userOwnedTokens = new uint256[](0); // Simplified - would need proper enumeration
     }
@@ -2752,7 +2780,7 @@ contract SwapPoolNative is
         // Dynamic recommendations based on user state
         uint256 recommendationCount = 0;
         if (userRewards > 0.001 ether) recommendationCount++; // Has rewards to claim
-        if (userTokenBalance > 0 && poolTokens.length >= MIN_POOL_SIZE) recommendationCount++; // Can stake
+        if (userTokenBalance > 0 && poolTokens.length >= minPoolSize) recommendationCount++; // Can stake
         if (userStaked > 0) recommendationCount++; // Can unstake
         
         actions = new string[](recommendationCount);
@@ -2770,7 +2798,7 @@ contract SwapPoolNative is
             index++;
         }
         
-        if (userTokenBalance > 0 && poolTokens.length >= MIN_POOL_SIZE) {
+        if (userTokenBalance > 0 && poolTokens.length >= minPoolSize) {
             actions[index] = "Stake Tokens";
             reasons[index] = "Start earning rewards on your tokens";
             estimatedGas[index] = 180000 * userTokenBalance;
@@ -2872,7 +2900,7 @@ contract SwapPoolNative is
         string memory statusMessage
     ) {
         // Check pool health
-        poolHealthy = poolTokens.length >= MIN_POOL_SIZE && !paused();
+        poolHealthy = poolTokens.length >= minPoolSize && !paused();
         
         // Check reward system health
         rewardSystemHealthy = totalStaked == 0 || rewardPerTokenStored > 0;
