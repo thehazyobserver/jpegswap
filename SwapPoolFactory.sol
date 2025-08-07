@@ -1362,7 +1362,10 @@ contract SwapPoolFactoryNative is Ownable, ReentrancyGuard {
         uint256[] memory amounts = new uint256[](allPools.length);
         uint256 count = 0;
         
-        for (uint256 i = 0; i < allPools.length; i++) {
+        // 🎯 GAS OPTIMIZATION: Limit iterations for large pool counts
+        uint256 maxIterations = allPools.length > 100 ? 100 : allPools.length;
+        
+        for (uint256 i = 0; i < maxIterations; i++) {
             try ISwapPoolRewards(allPools[i]).earned(user) returns (uint256 pending) {
                 if (pending > 0) {
                     validPools[count] = allPools[i];
@@ -1389,7 +1392,10 @@ contract SwapPoolFactoryNative is Ownable, ReentrancyGuard {
      * @param user User address to check
      */
     function getUserTotalPendingRewards(address user) external view returns (uint256 totalPending) {
-        for (uint256 i = 0; i < allPools.length; i++) {
+        // 🎯 GAS OPTIMIZATION: Limit iterations for large pool counts
+        uint256 maxIterations = allPools.length > 100 ? 100 : allPools.length;
+        
+        for (uint256 i = 0; i < maxIterations; i++) {
             try ISwapPoolRewards(allPools[i]).earned(user) returns (uint256 pending) {
                 totalPending += pending;
             } catch {
@@ -1403,7 +1409,10 @@ contract SwapPoolFactoryNative is Ownable, ReentrancyGuard {
      * @param user User address to check
      */
     function getUserActivePoolCount(address user) external view returns (uint256 activeCount) {
-        for (uint256 i = 0; i < allPools.length; i++) {
+        // 🎯 GAS OPTIMIZATION: Limit iterations for large pool counts
+        uint256 maxIterations = allPools.length > 100 ? 100 : allPools.length;
+        
+        for (uint256 i = 0; i < maxIterations; i++) {
             try ISwapPoolRewards(allPools[i]).earned(user) returns (uint256 pending) {
                 if (pending > 0) {
                     activeCount++;
@@ -1754,7 +1763,10 @@ contract SwapPoolFactoryNative is Ownable, ReentrancyGuard {
         
         warnings = new string[](5); // Max 5 warnings
         
-        for (uint256 i = 0; i < allPools.length; i++) {
+        // 🎯 GAS OPTIMIZATION: Limit iterations for large pool counts
+        uint256 maxIterations = allPools.length > 100 ? 100 : allPools.length;
+        
+        for (uint256 i = 0; i < maxIterations; i++) {
             try ISwapPoolRewards(allPools[i]).nftCollection() returns (address collection) {
                 if (collectionToPool[collection] == allPools[i]) {
                     try IERC721(collection).balanceOf(allPools[i]) returns (uint256 balance) {

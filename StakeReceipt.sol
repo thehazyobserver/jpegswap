@@ -2139,7 +2139,7 @@ contract StakeReceipt is ERC721Enumerable, Ownable {
     }
 
     /**
-     * @dev Get collection timeline statistics
+     * @dev Get collection timeline statistics (gas-optimized with limit)
      */
     function getCollectionTimeline() external view returns (
         uint256 totalMinted,
@@ -2158,7 +2158,10 @@ contract StakeReceipt is ERC721Enumerable, Ownable {
             oldestActive = block.timestamp;
             newestActive = 0;
             
-            for (uint256 i = 0; i < currentSupply; i++) {
+            // 🎯 GAS OPTIMIZATION: Limit iterations to prevent gas issues
+            uint256 maxIterations = currentSupply > 100 ? 100 : currentSupply;
+            
+            for (uint256 i = 0; i < maxIterations; i++) {
                 uint256 tokenId = tokenByIndex(i);
                 uint256 mintTime = receiptMintTime[tokenId];
                 
@@ -2175,12 +2178,51 @@ contract StakeReceipt is ERC721Enumerable, Ownable {
                 }
             }
             
-            averageAge = currentSupply > 0 ? totalAge / currentSupply : 0;
+            // Calculate average based on sampled tokens
+            averageAge = maxIterations > 0 ? totalAge / maxIterations : 0;
             oldestActive = oldestActive < block.timestamp ? 
                 block.timestamp - oldestActive : 0;
             newestActive = newestActive > 0 ? 
                 block.timestamp - newestActive : 0;
         }
+    }
+
+    /**
+     * @dev Get paginated collection timeline for detailed analysis
+     * @param offset Starting index for pagination
+     * @param limit Maximum items to return (capped at 100)
+     */
+    function getCollectionTimelinePaginated(uint256 offset, uint256 limit) external view returns (
+        uint256[] memory tokenIds,
+        uint256[] memory mintTimes,
+        uint256[] memory ages,
+        bool hasMore
+    ) {
+        uint256 currentSupply = totalSupply();
+        if (offset >= currentSupply) {
+            return (new uint256[](0), new uint256[](0), new uint256[](0), false);
+        }
+        
+        // Cap limit at 100 for gas efficiency
+        if (limit > 100) limit = 100;
+        
+        uint256 remaining = currentSupply - offset;
+        uint256 actualLimit = remaining < limit ? remaining : limit;
+        
+        tokenIds = new uint256[](actualLimit);
+        mintTimes = new uint256[](actualLimit);
+        ages = new uint256[](actualLimit);
+        
+        for (uint256 i = 0; i < actualLimit; i++) {
+            uint256 tokenId = tokenByIndex(offset + i);
+            uint256 mintTime = receiptMintTime[tokenId];
+            
+            tokenIds[i] = tokenId;
+            mintTimes[i] = mintTime;
+            ages[i] = mintTime > 0 ? block.timestamp - mintTime : 0;
+        }
+        
+        hasMore = offset + actualLimit < currentSupply;
     }
     
     /// @dev Register my contract on Sonic FeeM

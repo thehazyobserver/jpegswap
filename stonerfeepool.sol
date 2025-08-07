@@ -1563,6 +1563,11 @@ contract StonerFeePool is
         _removeFromArray(stakedTokens[msg.sender], tokenId);
         totalStaked--;
         
+        // 🎯 REMOVE FROM UNIQUE STAKERS IF NO MORE STAKES
+        if (stakedTokens[msg.sender].length == 0) {
+            uniqueStakers.remove(msg.sender);
+        }
+        
         // Return NFT
         stonerNFT.safeTransferFrom(address(this), msg.sender, tokenId);
         
@@ -1615,6 +1620,11 @@ contract StonerFeePool is
                 block.timestamp, 
                 block.timestamp - stakeInfos[tokenId].stakedAt
             );
+        }
+        
+        // 🎯 REMOVE FROM UNIQUE STAKERS IF NO MORE STAKES
+        if (stakedTokens[msg.sender].length == 0) {
+            uniqueStakers.remove(msg.sender);
         }
     }
 
@@ -1836,7 +1846,7 @@ contract StonerFeePool is
         uint256 stakingAPR
     ) {
         // Count unique stakers
-        totalUniqueStakers = 0; // Would need separate tracking in production
+        totalUniqueStakers = uniqueStakers.length();
         
         averageStakePerUser = totalStaked > 0 ? totalStaked / (totalUniqueStakers > 0 ? totalUniqueStakers : 1) : 0;
         
@@ -1852,6 +1862,36 @@ contract StonerFeePool is
         // Calculate APR based on reward rate
         if (totalStaked > 0 && rewardPerTokenStored > 0) {
             stakingAPR = (rewardPerTokenStored * 365 * 100) / 1e18; // Simplified APR
+        }
+    }
+
+    /**
+     * @dev Get unique staker count for efficient analytics
+     */
+    function getUniqueStakerCount() external view returns (uint256) {
+        return uniqueStakers.length();
+    }
+
+    /**
+     * @dev Get paginated list of unique stakers
+     * @param offset Starting index
+     * @param limit Maximum number of stakers to return (capped at 100)
+     */
+    function getUniqueStakers(uint256 offset, uint256 limit) external view returns (address[] memory stakers) {
+        uint256 totalStakers = uniqueStakers.length();
+        if (offset >= totalStakers) {
+            return new address[](0);
+        }
+        
+        // Cap limit at 100 for gas efficiency
+        if (limit > 100) limit = 100;
+        
+        uint256 remaining = totalStakers - offset;
+        uint256 actualLimit = remaining < limit ? remaining : limit;
+        
+        stakers = new address[](actualLimit);
+        for (uint256 i = 0; i < actualLimit; i++) {
+            stakers[i] = uniqueStakers.at(offset + i);
         }
     }
 
