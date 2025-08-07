@@ -2196,23 +2196,20 @@ contract SwapPoolNative is
      */
     function getUserPortfolio(address user) external view returns (
         uint256 userTotalStaked,
-        uint256 totalEarned,
         uint256 userPendingRewards,
         uint256 averageStakingTime,
-        uint256[] memory activeStakes,
-        uint256 totalSwapsCount,
-        uint256 userSwapVolume
+        uint256[] memory activeStakes
     ) {
         uint256[] memory userReceiptTokens = userStakes[user];
         uint256 userReceiptLength = userReceiptTokens.length; // Gas optimization: cache array length
-        uint256[] memory activeReceiptTokens = new uint256[](userReceiptLength);
+        uint256[] memory tempStakes = new uint256[](userReceiptLength);
         uint256 activeCount = 0;
-        uint256 totalStakingTime = 0;
+        uint256 totalTime = 0;
         
         for (uint256 i = 0; i < userReceiptLength; i++) {
             if (stakeInfos[userReceiptTokens[i]].active) {
-                activeReceiptTokens[activeCount] = userReceiptTokens[i];
-                totalStakingTime += block.timestamp - stakeInfos[userReceiptTokens[i]].stakedAt;
+                tempStakes[activeCount] = userReceiptTokens[i];
+                totalTime += block.timestamp - stakeInfos[userReceiptTokens[i]].stakedAt;
                 activeCount++;
             }
         }
@@ -2220,17 +2217,14 @@ contract SwapPoolNative is
         // Resize active stakes array
         activeStakes = new uint256[](activeCount);
         for (uint256 i = 0; i < activeCount; i++) {
-            activeStakes[i] = activeReceiptTokens[i];
+            activeStakes[i] = tempStakes[i];
         }
         
         return (
             activeCount,
-            0, // totalEarned - would need additional tracking
             earned(user),
-            activeCount > 0 ? totalStakingTime / activeCount : 0,
-            activeStakes,
-            0, // Analytics moved to The Graph - query offchain
-            0  // Analytics moved to The Graph - query offchain
+            activeCount > 0 ? totalTime / activeCount : 0,
+            activeStakes
         );
     }
 
@@ -2245,40 +2239,36 @@ contract SwapPoolNative is
         view 
         returns (
             uint256 userTotalStaked,
-            uint256 totalEarned,
             uint256 userPendingRewards,
             uint256 averageStakingTime,
             uint256[] memory activeStakes,
-            uint256 totalSwapsCount,
-            uint256 userSwapVolume,
             uint256 totalStakes,
             bool hasMore
         ) 
     {
         uint256[] memory userReceiptTokens = userStakes[user];
-        uint256 userReceiptLength = userReceiptTokens.length;
-        totalStakes = userReceiptLength;
+        totalStakes = userReceiptTokens.length;
+        userPendingRewards = earned(user);
         
-        if (offset >= userReceiptLength) {
+        if (offset >= totalStakes) {
             activeStakes = new uint256[](0);
             hasMore = false;
-            return (0, 0, earned(user), 0, activeStakes, 
-                   0, 0, totalStakes, hasMore); // Analytics moved to The Graph
+            return (0, userPendingRewards, 0, activeStakes, totalStakes, hasMore);
         }
         
         uint256 end = offset + limit;
-        if (end > userReceiptLength) {
-            end = userReceiptLength;
+        if (end > totalStakes) {
+            end = totalStakes;
         }
         
-        uint256[] memory activeReceiptTokens = new uint256[](end - offset);
+        uint256[] memory tempStakes = new uint256[](end - offset);
         uint256 activeCount = 0;
-        uint256 totalStakingTime = 0;
+        uint256 totalTime = 0;
         
         for (uint256 i = offset; i < end; i++) {
             if (stakeInfos[userReceiptTokens[i]].active) {
-                activeReceiptTokens[activeCount] = userReceiptTokens[i];
-                totalStakingTime += block.timestamp - stakeInfos[userReceiptTokens[i]].stakedAt;
+                tempStakes[activeCount] = userReceiptTokens[i];
+                totalTime += block.timestamp - stakeInfos[userReceiptTokens[i]].stakedAt;
                 activeCount++;
             }
         }
@@ -2286,22 +2276,12 @@ contract SwapPoolNative is
         // Resize active stakes array
         activeStakes = new uint256[](activeCount);
         for (uint256 i = 0; i < activeCount; i++) {
-            activeStakes[i] = activeReceiptTokens[i];
+            activeStakes[i] = tempStakes[i];
         }
         
-        hasMore = end < userReceiptLength;
-        
-        return (
-            activeCount,
-            0, // totalEarned - would need additional tracking
-            earned(user),
-            activeCount > 0 ? totalStakingTime / activeCount : 0,
-            activeStakes,
-            0, // Analytics moved to The Graph - query offchain
-            0, // Analytics moved to The Graph - query offchain
-            totalStakes,
-            hasMore
-        );
+        hasMore = end < totalStakes;
+        userTotalStaked = activeCount;
+        averageStakingTime = activeCount > 0 ? totalTime / activeCount : 0;
     }
 
     /**
