@@ -1879,6 +1879,50 @@ contract StakeReceipt is ERC721Enumerable, Ownable {
         }
     }
 
+    /**
+     * @dev Get user receipts with pagination (gas-efficient for large portfolios)
+     * @param user User address
+     * @param offset Starting index (0 for first page)
+     * @param limit Maximum number of results (recommended: 100 or less)
+     */
+    function getUserReceiptsPaginated(address user, uint256 offset, uint256 limit) 
+        external 
+        view 
+        returns (
+            uint256[] memory receipts, 
+            uint256[] memory originalTokens,
+            uint256 totalBalance,
+            bool hasMore
+        ) 
+    {
+        uint256 balance = balanceOf(user);
+        totalBalance = balance;
+        
+        if (offset >= balance) {
+            receipts = new uint256[](0);
+            originalTokens = new uint256[](0);
+            hasMore = false;
+            return (receipts, originalTokens, totalBalance, hasMore);
+        }
+        
+        uint256 end = offset + limit;
+        if (end > balance) {
+            end = balance;
+        }
+        
+        uint256 resultLength = end - offset;
+        receipts = new uint256[](resultLength);
+        originalTokens = new uint256[](resultLength);
+        
+        for (uint256 i = 0; i < resultLength; i++) {
+            uint256 receiptId = tokenOfOwnerByIndex(user, offset + i);
+            receipts[i] = receiptId;
+            originalTokens[i] = receiptToOriginalToken[receiptId];
+        }
+        
+        hasMore = end < balance;
+    }
+
     function getReceiptDetails(uint256 receiptTokenId) external view returns (
         bool exists,
         address owner,
@@ -1983,7 +2027,7 @@ contract StakeReceipt is ERC721Enumerable, Ownable {
     }
 
     /**
-     * @dev Get user's receipt history with timestamps
+     * @dev Get user's receipt history with timestamps (LEGACY - may cause gas issues with many receipts)
      * @param user User address to check
      */
     function getUserReceiptHistory(address user) external view returns (
@@ -2006,6 +2050,60 @@ contract StakeReceipt is ERC721Enumerable, Ownable {
             ages[i] = receiptMintTime[receiptId] > 0 ? 
                 block.timestamp - receiptMintTime[receiptId] : 0;
         }
+    }
+
+    /**
+     * @dev Get user receipt history with pagination (gas-efficient for large portfolios)
+     * @param user User address
+     * @param offset Starting index (0 for first page)
+     * @param limit Maximum number of results (recommended: 50 or less)
+     */
+    function getUserReceiptHistoryPaginated(address user, uint256 offset, uint256 limit) 
+        external 
+        view 
+        returns (
+            uint256[] memory receiptIds,
+            uint256[] memory originalTokenIds,
+            uint256[] memory mintTimes,
+            uint256[] memory ages,
+            uint256 totalBalance,
+            bool hasMore
+        ) 
+    {
+        uint256 balance = balanceOf(user);
+        totalBalance = balance;
+        
+        if (offset >= balance) {
+            // Return empty arrays if offset is beyond balance
+            receiptIds = new uint256[](0);
+            originalTokenIds = new uint256[](0);
+            mintTimes = new uint256[](0);
+            ages = new uint256[](0);
+            hasMore = false;
+            return (receiptIds, originalTokenIds, mintTimes, ages, totalBalance, hasMore);
+        }
+        
+        uint256 end = offset + limit;
+        if (end > balance) {
+            end = balance;
+        }
+        
+        uint256 resultLength = end - offset;
+        receiptIds = new uint256[](resultLength);
+        originalTokenIds = new uint256[](resultLength);
+        mintTimes = new uint256[](resultLength);
+        ages = new uint256[](resultLength);
+        
+        for (uint256 i = 0; i < resultLength; i++) {
+            uint256 receiptId = tokenOfOwnerByIndex(user, offset + i);
+            receiptIds[i] = receiptId;
+            originalTokenIds[i] = receiptToOriginalToken[receiptId];
+            mintTimes[i] = receiptMintTime[receiptId];
+            ages[i] = receiptMintTime[receiptId] > 0 ? 
+                block.timestamp - receiptMintTime[receiptId] : 0;
+        }
+        
+        hasMore = end < balance;
     }
 
     /**

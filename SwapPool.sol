@@ -1448,6 +1448,18 @@ contract SwapPoolNative is
     uint256[] private _batchReceiptTokens;
     uint256[] private _batchReturnedTokens;
 
+    // 📊 REAL ANALYTICS TRACKING (replacing placeholders)
+    uint256 public last24hVolumeWei;              // 24h volume in wei
+    uint256 public last24hTimestamp;              // Timestamp for 24h window
+    mapping(address => bool) public uniqueUsers;   // Track unique users
+    uint256 public totalUniqueUsers;              // Count of unique users
+    uint256 public totalSwapVolume;               // All-time swap volume
+    uint256 public totalSwapsExecuted;            // Total number of swaps
+    
+    // Per-user analytics tracking
+    mapping(address => uint256) public userSwapsCount;      // Number of swaps per user
+    mapping(address => uint256) public userTotalSwapVolume; // Total volume per user (in wei)
+
     // Events
     event SwapExecuted(address indexed user, uint256 tokenIdIn, uint256 tokenIdOut, uint256 feePaid);
     event BatchSwapExecuted(address indexed user, uint256 swapCount, uint256 totalFeePaid);
@@ -1616,6 +1628,9 @@ contract SwapPoolNative is
         uint256 contractBalanceAfter = IERC721(nftCollection).balanceOf(address(this));
         require(contractBalanceAfter == contractBalanceBefore, "Flashloan protection: balance mismatch");
 
+        // 📊 UPDATE ANALYTICS TRACKING
+        _updateSwapAnalytics(msg.sender, msg.value, 1);
+
         emit SwapExecuted(msg.sender, tokenIdIn, tokenIdOut, msg.value);
     }
 
@@ -1712,6 +1727,9 @@ contract SwapPoolNative is
         uint256 contractBalanceAfter = IERC721(nftCollection).balanceOf(address(this));
         require(contractBalanceAfter == contractBalanceBefore, "Flashloan protection: balance mismatch");
 
+        // 📊 UPDATE ANALYTICS TRACKING
+        _updateSwapAnalytics(msg.sender, msg.value, tokenIdsIn.length);
+
         // Emit batch completion event
         emit BatchSwapExecuted(msg.sender, tokenIdsIn.length, msg.value);
     }
@@ -1744,6 +1762,12 @@ contract SwapPoolNative is
         originalToReceiptToken[tokenId] = receiptTokenId;
         userStakes[msg.sender].push(receiptTokenId);
         totalStaked++;
+
+        // 📊 TRACK UNIQUE USERS FOR ANALYTICS
+        if (!uniqueUsers[msg.sender]) {
+            uniqueUsers[msg.sender] = true;
+            totalUniqueUsers++;
+        }
 
         emit Staked(msg.sender, tokenId, receiptTokenId);
     }
@@ -1973,6 +1997,33 @@ contract SwapPoolNative is
         }
     }
 
+    /**
+     * @dev Update analytics tracking for swaps
+     */
+    function _updateSwapAnalytics(address user, uint256 swapValue, uint256 swapCount) internal {
+        // Track unique users
+        if (!uniqueUsers[user]) {
+            uniqueUsers[user] = true;
+            totalUniqueUsers++;
+        }
+        
+        // Update 24h volume (reset if more than 24h passed)
+        if (block.timestamp > last24hTimestamp + 86400) {
+            last24hVolumeWei = swapValue;
+            last24hTimestamp = block.timestamp;
+        } else {
+            last24hVolumeWei += swapValue;
+        }
+        
+        // Update totals
+        totalSwapVolume += swapValue;
+        totalSwapsExecuted += swapCount;
+        
+        // Update user-specific analytics
+        userSwapsCount[user] += swapCount;
+        userTotalSwapVolume[user] += swapValue;
+    }
+
     // 📊 COMPLETE REWARD CALCULATION FUNCTIONS
 
     /**
@@ -2153,7 +2204,7 @@ contract SwapPoolNative is
     }
 
     /**
-     * @dev Get comprehensive user portfolio analytics
+     * @dev Get comprehensive user portfolio analytics (LEGACY - may cause gas issues)
      */
     function getUserPortfolio(address user) external view returns (
         uint256 userTotalStaked,
@@ -2162,7 +2213,7 @@ contract SwapPoolNative is
         uint256 averageStakingTime,
         uint256[] memory activeStakes,
         uint256 totalSwapsCount,
-        uint256 totalSwapVolume
+        uint256 userSwapVolume
     ) {
         uint256[] memory userReceiptTokens = userStakes[user];
         uint256 userReceiptLength = userReceiptTokens.length; // Gas optimization: cache array length
@@ -2190,8 +2241,78 @@ contract SwapPoolNative is
             earned(user),
             activeCount > 0 ? totalStakingTime / activeCount : 0,
             activeStakes,
-            0, // totalSwapsCount - would need additional tracking
-            0  // totalSwapVolume - would need additional tracking
+            userSwapsCount[user], // Use real analytics
+            userTotalSwapVolume[user]  // Use real analytics
+        );
+    }
+
+    /**
+     * @dev Get user portfolio with pagination (gas-efficient for power users)
+     * @param user User address
+     * @param offset Starting index for stakes
+     * @param limit Maximum number of stakes to process
+     */
+    function getUserPortfolioPaginated(address user, uint256 offset, uint256 limit) 
+        external 
+        view 
+        returns (
+            uint256 userTotalStaked,
+            uint256 totalEarned,
+            uint256 userPendingRewards,
+            uint256 averageStakingTime,
+            uint256[] memory activeStakes,
+            uint256 totalSwapsCount,
+            uint256 userSwapVolume,
+            uint256 totalStakes,
+            bool hasMore
+        ) 
+    {
+        uint256[] memory userReceiptTokens = userStakes[user];
+        uint256 userReceiptLength = userReceiptTokens.length;
+        totalStakes = userReceiptLength;
+        
+        if (offset >= userReceiptLength) {
+            activeStakes = new uint256[](0);
+            hasMore = false;
+            return (0, 0, earned(user), 0, activeStakes, 
+                   userSwapsCount[user], userTotalSwapVolume[user], totalStakes, hasMore);
+        }
+        
+        uint256 end = offset + limit;
+        if (end > userReceiptLength) {
+            end = userReceiptLength;
+        }
+        
+        uint256[] memory activeReceiptTokens = new uint256[](end - offset);
+        uint256 activeCount = 0;
+        uint256 totalStakingTime = 0;
+        
+        for (uint256 i = offset; i < end; i++) {
+            if (stakeInfos[userReceiptTokens[i]].active) {
+                activeReceiptTokens[activeCount] = userReceiptTokens[i];
+                totalStakingTime += block.timestamp - stakeInfos[userReceiptTokens[i]].stakedAt;
+                activeCount++;
+            }
+        }
+        
+        // Resize active stakes array
+        activeStakes = new uint256[](activeCount);
+        for (uint256 i = 0; i < activeCount; i++) {
+            activeStakes[i] = activeReceiptTokens[i];
+        }
+        
+        hasMore = end < userReceiptLength;
+        
+        return (
+            activeCount,
+            0, // totalEarned - would need additional tracking
+            earned(user),
+            activeCount > 0 ? totalStakingTime / activeCount : 0,
+            activeStakes,
+            userSwapsCount[user],
+            userTotalSwapVolume[user],
+            totalStakes,
+            hasMore
         );
     }
 
