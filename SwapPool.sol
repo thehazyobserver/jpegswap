@@ -1450,6 +1450,7 @@ contract SwapPoolNative is
 
     // Events
     event SwapExecuted(address indexed user, uint256 tokenIdIn, uint256 tokenIdOut, uint256 feePaid);
+    event BatchSwapExecuted(address indexed user, uint256 swapCount, uint256 totalFeePaid);
     event Staked(address indexed user, uint256 tokenId, uint256 receiptTokenId);
     event Unstaked(address indexed user, uint256 tokenId, uint256 receiptTokenId);
     event BatchUnstaked(address indexed user, uint256[] receiptTokenIds, uint256[] tokensReceived);
@@ -1608,6 +1609,92 @@ contract SwapPoolNative is
         }
 
         emit SwapExecuted(msg.sender, tokenIdIn, tokenIdOut, msg.value);
+    }
+
+    /**
+     * @dev Swap multiple NFTs in a single transaction
+     * @param tokenIdsIn Array of NFT token IDs user wants to swap (must own these)
+     * @param tokenIdsOut Array of NFT token IDs user wants to receive (must be in pool)
+     */
+    function swapNFTBatch(uint256[] calldata tokenIdsIn, uint256[] calldata tokenIdsOut)
+        external
+        payable
+        nonReentrant
+        onlyInitialized
+        whenNotPaused
+        minimumLiquidity
+        updateReward(address(0)) // Update global rewards
+    {
+        // 🛡️ BATCH VALIDATION
+        require(tokenIdsIn.length > 0 && tokenIdsOut.length > 0, "Empty arrays");
+        require(tokenIdsIn.length == tokenIdsOut.length, "Array length mismatch");
+        require(tokenIdsIn.length <= maxBatchSize, "Exceeds batch limit");
+        
+        uint256 totalFeeRequired = swapFeeInWei * tokenIdsIn.length;
+        if (msg.value != totalFeeRequired) revert IncorrectFee();
+
+        // Validate all tokens before any state changes
+        for (uint256 i = 0; i < tokenIdsIn.length; i++) {
+            uint256 tokenIdIn = tokenIdsIn[i];
+            uint256 tokenIdOut = tokenIdsOut[i];
+            
+            // Check ownership and approval for input tokens
+            if (IERC721(nftCollection).ownerOf(tokenIdIn) != msg.sender) revert NotTokenOwner();
+            if (IERC721(nftCollection).getApproved(tokenIdIn) != address(this) && 
+                !IERC721(nftCollection).isApprovedForAll(msg.sender, address(this))) {
+                revert TokenNotApproved();
+            }
+            
+            // Check pool ownership of output tokens
+            if (IERC721(nftCollection).ownerOf(tokenIdOut) != address(this)) revert TokenUnavailable();
+            if (tokenIdIn == tokenIdOut) revert SameTokenSwap();
+        }
+
+        // Calculate fee distribution
+        uint256 stonerAmount = 0;
+        uint256 rewardAmount = msg.value;
+
+        if (stonerShare > 0) {
+            stonerAmount = (msg.value * stonerShare) / 100;
+            rewardAmount = msg.value - stonerAmount;
+        }
+
+        // 🔄 Update pool token tracking FIRST (CEI pattern)
+        for (uint256 i = 0; i < tokenIdsIn.length; i++) {
+            _removeTokenFromPool(tokenIdsOut[i]);
+            _addTokenToPool(tokenIdsIn[i]);
+        }
+
+        // 🎯 DISTRIBUTE REMAINING AS REWARDS TO STAKERS (ENHANCED PRECISION)
+        if (rewardAmount > 0 && totalStaked > 0) {
+            // Use higher precision to minimize rounding errors
+            uint256 rewardWithRemainder = (rewardAmount * PRECISION) + rewardRemainder;
+            uint256 rewardPerTokenAmount = rewardWithRemainder / totalStaked;
+            rewardRemainder = rewardWithRemainder % totalStaked;
+            
+            // Add rewards to the reward pool with enhanced precision
+            rewardPerTokenStored += rewardPerTokenAmount / 1e9; // Convert back from PRECISION to 1e18
+            totalPrecisionRewards += rewardWithRemainder;
+            totalRewardsDistributed += rewardAmount;
+            emit RewardsDistributed(rewardAmount);
+        }
+
+        // Execute all swaps - NFT transfers
+        for (uint256 i = 0; i < tokenIdsIn.length; i++) {
+            IERC721(nftCollection).transferFrom(msg.sender, address(this), tokenIdsIn[i]);
+            IERC721(nftCollection).transferFrom(address(this), msg.sender, tokenIdsOut[i]);
+            
+            // Emit event for each swap in the batch
+            emit SwapExecuted(msg.sender, tokenIdsIn[i], tokenIdsOut[i], swapFeeInWei);
+        }
+
+        // External calls LAST (CEI pattern)
+        if (stonerAmount > 0) {
+            payable(stonerPool).sendValue(stonerAmount);
+        }
+
+        // Emit batch completion event
+        emit BatchSwapExecuted(msg.sender, tokenIdsIn.length, msg.value);
     }
 
     // 🏦 COMPLETE STAKING WITH RECEIPT MINTING + POOL TRACKING
@@ -2357,6 +2444,77 @@ contract SwapPoolNative is
     }
 
     /**
+     * @dev Preview batch swap transaction before execution
+     * @param tokenIdsIn Array of token IDs user wants to swap
+     * @param tokenIdsOut Array of token IDs user wants to receive
+     */
+    function previewBatchSwap(uint256[] calldata tokenIdsIn, uint256[] calldata tokenIdsOut) 
+        external view returns (
+        bool canSwap,
+        string memory reason,
+        uint256 totalFeeRequired,
+        uint256 rewardImpact,
+        uint256 validPairs
+    ) {
+        canSwap = false;
+        reason = "Unknown error";
+        validPairs = 0;
+        
+        // Basic validation
+        if (tokenIdsIn.length == 0 || tokenIdsOut.length == 0) {
+            reason = "Empty arrays not allowed";
+            return (canSwap, reason, totalFeeRequired, rewardImpact, validPairs);
+        }
+        
+        if (tokenIdsIn.length != tokenIdsOut.length) {
+            reason = "Array length mismatch";
+            return (canSwap, reason, totalFeeRequired, rewardImpact, validPairs);
+        }
+        
+        if (tokenIdsIn.length > maxBatchSize) {
+            reason = "Exceeds maximum batch size";
+            return (canSwap, reason, totalFeeRequired, rewardImpact, validPairs);
+        }
+        
+        // Check each swap pair
+        for (uint256 i = 0; i < tokenIdsIn.length; i++) {
+            uint256 tokenIdIn = tokenIdsIn[i];
+            uint256 tokenIdOut = tokenIdsOut[i];
+            
+            // Skip if same token
+            if (tokenIdIn == tokenIdOut) continue;
+            
+            // Check if output token is available in pool
+            if (IERC721(nftCollection).ownerOf(tokenIdOut) == address(this) && 
+                tokenInPool[tokenIdOut]) {
+                validPairs++;
+            }
+        }
+        
+        if (validPairs == 0) {
+            reason = "No valid swap pairs found";
+            return (canSwap, reason, totalFeeRequired, rewardImpact, validPairs);
+        }
+        
+        if (validPairs != tokenIdsIn.length) {
+            reason = "Some swap pairs are invalid";
+            return (canSwap, reason, totalFeeRequired, rewardImpact, validPairs);
+        }
+        
+        // All validations passed
+        canSwap = true;
+        reason = "Batch swap available";
+        totalFeeRequired = swapFeeInWei * tokenIdsIn.length;
+        
+        // Calculate total reward impact
+        if (totalStaked > 0) {
+            uint256 totalRewardAmount = stonerShare > 0 ? 
+                totalFeeRequired - (totalFeeRequired * stonerShare / 100) : totalFeeRequired;
+            rewardImpact = (totalRewardAmount * 1e18) / totalStaked;
+        }
+    }
+
+    /**
      * @dev Check if user can unstake all their stakes in one transaction
      * @param user User address
      */
@@ -2482,6 +2640,23 @@ contract SwapPoolNative is
         poolActive = !paused() && poolTokens.length >= MIN_POOL_SIZE;
         
         userOwnedTokens = new uint256[](0); // Simplified - would need proper enumeration
+    }
+
+    /**
+     * @dev Calculate total fee required for batch swap
+     * @param swapCount Number of NFTs to swap
+     * @return totalFee Total fee in wei required for the batch swap
+     * @return feePerSwap Individual fee per swap
+     */
+    function calculateBatchSwapFee(uint256 swapCount) external view returns (
+        uint256 totalFee,
+        uint256 feePerSwap
+    ) {
+        require(swapCount > 0, "Swap count must be greater than 0");
+        require(swapCount <= maxBatchSize, "Exceeds maximum batch size");
+        
+        feePerSwap = swapFeeInWei;
+        totalFee = swapFeeInWei * swapCount;
     }
 
     /**
