@@ -1405,12 +1405,12 @@ contract SwapPoolNative is
     uint256 public stonerShare; // Percentage (0–100)
     bool public initialized;
 
-    // 🎯 LIQUIDITY MANAGEMENT
-    uint256 public minPoolSize = 5; // Minimum tokens required for swaps (configurable)
+    // 🎯 LIQUIDITY MANAGEMENT - Optimized for Sonic Blockchain
+    uint256 public minPoolSize = 2; // Minimum tokens required for swaps (Sonic optimized)
     
-    // 🎯 CONFIGURABLE BATCH LIMITS
-    uint256 public maxBatchSize = 10;           // Configurable batch operation limit
-    uint256 public maxUnstakeAllLimit = 20;     // Configurable unstake all limit
+    // 🎯 CONFIGURABLE BATCH LIMITS - Sonic Blockchain Optimized
+    uint256 public maxBatchSize = 50;           // High throughput batch operations for Sonic
+    uint256 public maxUnstakeAllLimit = 100;     // Maximum unstaking flexibility for Sonic
 
     // 🎯 POOL TOKEN TRACKING - Track all available tokens
     uint256[] public poolTokens;                    // Array of all tokens in pool
