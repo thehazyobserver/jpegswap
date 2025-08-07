@@ -1533,7 +1533,7 @@ contract StonerFeePool is
 
     function stake(uint256 tokenId) external whenNotPaused {
         require(stakerOf[tokenId] == address(0), "Already staked");
-        stonerNFT.transferFrom(msg.sender, address(this), tokenId);
+        stonerNFT.safeTransferFrom(msg.sender, address(this), tokenId);
         stakerOf[tokenId] = msg.sender;
         stakedTokens[msg.sender].push(tokenId);
         allStakedTokenIds.push(tokenId);
@@ -1562,7 +1562,7 @@ contract StonerFeePool is
             require(found, "No available tokens");
         }
 
-        stonerNFT.transferFrom(address(this), msg.sender, returnTokenId);
+        stonerNFT.safeTransferFrom(address(this), msg.sender, returnTokenId);
 
         // cleanup
         delete stakerOf[originalTokenId];
@@ -1622,7 +1622,7 @@ contract StonerFeePool is
     }
 
     function emergencyUnstake(uint256 tokenId, address to) external onlyOwner {
-        stonerNFT.transferFrom(address(this), to, tokenId);
+        stonerNFT.safeTransferFrom(address(this), to, tokenId);
         address staker = stakerOf[tokenId];
         if (staker != address(0)) {
             _removeFromArray(stakedTokens[staker], tokenId);

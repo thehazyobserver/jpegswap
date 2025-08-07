@@ -1740,14 +1740,14 @@ contract SwapPool is
             }
         }
 
-        IERC721(nftCollection).transferFrom(msg.sender, address(this), tokenIdIn);
-        IERC721(nftCollection).transferFrom(address(this), msg.sender, tokenIdOut);
+        IERC721(nftCollection).safeTransferFrom(msg.sender, address(this), tokenIdIn);
+        IERC721(nftCollection).safeTransferFrom(address(this), msg.sender, tokenIdOut);
 
         emit SwapExecuted(msg.sender, tokenIdIn, tokenIdOut, totalFee);
     }
 
     function stakeNFT(uint256 tokenId) external onlyInitialized whenNotPaused {
-        IERC721(nftCollection).transferFrom(msg.sender, address(this), tokenId);
+        IERC721(nftCollection).safeTransferFrom(msg.sender, address(this), tokenId);
         stakeTimestamps[tokenId] = block.timestamp;
 
         emit Staked(msg.sender, tokenId, block.timestamp);
