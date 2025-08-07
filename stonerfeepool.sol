@@ -1522,18 +1522,6 @@ contract StonerFeePool is
         // Update rewards before any state changes
         _updateReward(msg.sender);
         
-        // 🎯 AUTO-CLAIM REWARDS BEFORE UNSTAKING
-        uint256 reward = rewards[msg.sender];
-        if (reward > 0) {
-            rewards[msg.sender] = 0;
-            totalRewardsClaimed += reward;
-            
-            (bool success, ) = payable(msg.sender).call{value: reward}("");
-            require(success, "Transfer failed");
-            
-            emit RewardClaimed(msg.sender, reward);
-        }
-        
         // Cleanup staking state
         receiptToken.burn(tokenId);
         delete stakerOf[tokenId];
@@ -1566,18 +1554,6 @@ contract StonerFeePool is
         
         // Update rewards once for the user
         _updateReward(msg.sender);
-        
-        // 🎯 AUTO-CLAIM ALL REWARDS
-        uint256 reward = rewards[msg.sender];
-        if (reward > 0) {
-            rewards[msg.sender] = 0;
-            totalRewardsClaimed += reward;
-            
-            (bool success, ) = payable(msg.sender).call{value: reward}("");
-            require(success, "Transfer failed");
-            
-            emit RewardClaimed(msg.sender, reward);
-        }
         
         // Process all unstakes
         for (uint256 i = 0; i < tokenIdsLength; i++) {

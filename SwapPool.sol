@@ -1563,6 +1563,9 @@ contract SwapPoolNative is
         minimumLiquidity
         updateReward(address(0)) // Update global rewards
     {
+        // 🛡️ FLASHLOAN PROTECTION - Snapshot balance before
+        uint256 contractBalanceBefore = IERC721(nftCollection).balanceOf(address(this));
+        
         // 🛡️ ENHANCED VALIDATION
         if (IERC721(nftCollection).ownerOf(tokenIdIn) != msg.sender) revert NotTokenOwner();
         if (IERC721(nftCollection).getApproved(tokenIdIn) != address(this) && 
@@ -1609,6 +1612,10 @@ contract SwapPoolNative is
             payable(stonerPool).sendValue(stonerAmount);
         }
 
+        // 🛡️ FLASHLOAN PROTECTION - Verify balance unchanged (1-to-1 swap)
+        uint256 contractBalanceAfter = IERC721(nftCollection).balanceOf(address(this));
+        require(contractBalanceAfter == contractBalanceBefore, "Flashloan protection: balance mismatch");
+
         emit SwapExecuted(msg.sender, tokenIdIn, tokenIdOut, msg.value);
     }
 
@@ -1626,6 +1633,9 @@ contract SwapPoolNative is
         minimumLiquidity
         updateReward(address(0)) // Update global rewards
     {
+        // 🛡️ FLASHLOAN PROTECTION - Snapshot balance before batch
+        uint256 contractBalanceBefore = IERC721(nftCollection).balanceOf(address(this));
+        
         // 🛡️ BATCH VALIDATION
         require(tokenIdsIn.length > 0 && tokenIdsOut.length > 0, "Empty arrays");
         require(tokenIdsIn.length == tokenIdsOut.length, "Array length mismatch");
@@ -1697,6 +1707,10 @@ contract SwapPoolNative is
         if (stonerAmount > 0) {
             payable(stonerPool).sendValue(stonerAmount);
         }
+
+        // 🛡️ FLASHLOAN PROTECTION - Verify balance unchanged (equal swap)
+        uint256 contractBalanceAfter = IERC721(nftCollection).balanceOf(address(this));
+        require(contractBalanceAfter == contractBalanceBefore, "Flashloan protection: balance mismatch");
 
         // Emit batch completion event
         emit BatchSwapExecuted(msg.sender, tokenIdsIn.length, msg.value);
@@ -1828,14 +1842,6 @@ contract SwapPoolNative is
         if (!stakeInfo.active) revert TokenNotStaked();
         
         uint256 originalTokenId = receiptToOriginalToken[receiptTokenId];
-        
-        // 🎯 AUTO-CLAIM REWARDS BEFORE UNSTAKING
-        uint256 rewardsToSend = pendingRewards[msg.sender];
-        if (rewardsToSend > 0) {
-            pendingRewards[msg.sender] = 0;
-            payable(msg.sender).sendValue(rewardsToSend);
-            emit RewardsClaimed(msg.sender, rewardsToSend);
-        }
         
         // Mark stake as inactive
         stakeInfo.active = false;
