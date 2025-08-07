@@ -1026,7 +1026,11 @@ contract SwapPoolFactoryNative is Ownable, ReentrancyGuard {
     mapping(address => address) public collectionToPool;
     address[] public allPools;
 
-    // 📊 THE GRAPH ANALYTICS - Enhanced Events for Pool Management
+    // � SONIC FEEM INTEGRATION
+    address public feeMRegistry; // Configurable FeeM registry address
+    uint256 public feeMCode; // Configurable FeeM registration code
+
+    // �📊 THE GRAPH ANALYTICS - Enhanced Events for Pool Management
     event PoolCreated(address indexed collection, address indexed pool, address indexed owner);
     event PoolDeployed(address indexed newPool, address indexed collection, address indexed deployer);
     event FactoryDeployed(address indexed implementation, address indexed owner);
@@ -1060,6 +1064,11 @@ contract SwapPoolFactoryNative is Ownable, ReentrancyGuard {
         if (_implementation == address(0)) revert ZeroAddressNotAllowed();
         if (!Address.isContract(_implementation)) revert InvalidImplementation();
         implementation = _implementation;
+        
+        // Initialize FeeM with Sonic mainnet defaults
+        feeMRegistry = 0xDC2B0D2Dd2b7759D97D50db4eabDC36973110830;
+        feeMCode = 92;
+        
         emit FactoryDeployed(_implementation, msg.sender);
     }
 
@@ -1314,42 +1323,6 @@ contract SwapPoolFactoryNative is Ownable, ReentrancyGuard {
     }
 
     /**
-     * @dev Estimate gas costs for batch operations
-     * @param batchSize Number of pools to process
-     */
-    function estimateBatchGasCosts(uint256 batchSize)
-        external
-        view
-        returns (
-            uint256 estimatedGas,
-            uint256 recommendedBatchSize,
-            uint256 totalBatches,
-            bool needsPagination
-        )
-    {
-        uint256 poolCount = allPools.length;
-        needsPagination = poolCount > 50;
-        
-        // Rough estimates based on typical operations
-        uint256 baseGas = 21000; // Transaction base cost
-        uint256 gasPerPool = 45000; // Estimated gas per pool claim
-        
-        if (batchSize == 0 || batchSize > poolCount) {
-            batchSize = poolCount;
-        }
-        
-        estimatedGas = baseGas + (gasPerPool * batchSize);
-        
-        // Recommend batch size to stay under gas limits
-        uint256 targetGasLimit = 8000000; // Conservative estimate
-        recommendedBatchSize = (targetGasLimit - baseGas) / gasPerPool;
-        if (recommendedBatchSize > 20) recommendedBatchSize = 20; // Safety cap
-        if (recommendedBatchSize > poolCount) recommendedBatchSize = poolCount;
-        
-        totalBatches = (poolCount + recommendedBatchSize - 1) / recommendedBatchSize; // Ceiling division
-    }
-
-    /**
      * @dev Get user's pending rewards across all pools
      * @param user User address to check
      */
@@ -1435,10 +1408,22 @@ contract SwapPoolFactoryNative is Ownable, ReentrancyGuard {
     }
 
     function registerMe() external onlyOwner {
-        (bool _success,) = address(0xDC2B0D2Dd2b7759D97D50db4eabDC36973110830).call(
-            abi.encodeWithSignature("selfRegister(uint256)", 92)
+        require(feeMRegistry != address(0), "FeeM registry not set");
+        (bool _success,) = feeMRegistry.call(
+            abi.encodeWithSignature("selfRegister(uint256)", feeMCode)
         );
         require(_success, "FeeM registration failed");
+    }
+
+    /**
+     * @dev Set FeeM registry configuration
+     * @param _feeMRegistry Address of the FeeM registry contract
+     * @param _feeMCode Registration code for FeeM
+     */
+    function setFeeMConfig(address _feeMRegistry, uint256 _feeMCode) external onlyOwner {
+        require(_feeMRegistry != address(0), "Zero address not allowed");
+        feeMRegistry = _feeMRegistry;
+        feeMCode = _feeMCode;
     }
 
     // 📊 VIEW FUNCTIONS

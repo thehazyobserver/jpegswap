@@ -1427,7 +1427,11 @@ contract StonerFeePool is
     using EnumerableSetUpgradeable for EnumerableSetUpgradeable.AddressSet;
     EnumerableSetUpgradeable.AddressSet private uniqueStakers;
 
-    // 📊 THE GRAPH ANALYTICS - Enhanced Events
+    // � SONIC FEEM INTEGRATION
+    address public feeMRegistry; // Configurable FeeM registry address
+    uint256 public feeMCode; // Configurable FeeM registration code
+
+    // �📊 THE GRAPH ANALYTICS - Enhanced Events
     event Staked(address indexed user, uint256 indexed tokenId);
     event Unstaked(address indexed user, uint256 indexed returnedTokenId);
     event RewardReceived(address indexed sender, uint256 amount);
@@ -1472,6 +1476,10 @@ contract StonerFeePool is
 
         stonerNFT = IERC721Upgradeable(_stonerNFT);
         receiptToken = IStakeReceipt(_receiptToken);
+        
+        // Initialize FeeM with Sonic mainnet defaults
+        feeMRegistry = 0xDC2B0D2Dd2b7759D97D50db4eabDC36973110830;
+        feeMCode = 92;
     }
 
     function stake(uint256 tokenId) external whenNotPaused {
@@ -1675,7 +1683,7 @@ contract StonerFeePool is
 
     function _updateReward(address user) internal {
         uint256 userBalance = stakedTokens[user].length;
-        uint256 owed = (userBalance * (rewardPerTokenStored - userRewardPerTokenPaid[user]));
+        uint256 owed = (userBalance * (rewardPerTokenStored - userRewardPerTokenPaid[user])) / PRECISION;
         rewards[user] += owed;
         userRewardPerTokenPaid[user] = rewardPerTokenStored;
     }
@@ -1747,10 +1755,22 @@ contract StonerFeePool is
     }
 
     function registerMe() external onlyOwner {
-        (bool _success,) = address(0xDC2B0D2Dd2b7759D97D50db4eabDC36973110830).call(
-            abi.encodeWithSignature("selfRegister(uint256)", 92)
+        require(feeMRegistry != address(0), "FeeM registry not set");
+        (bool _success,) = feeMRegistry.call(
+            abi.encodeWithSignature("selfRegister(uint256)", feeMCode)
         );
         require(_success, "FeeM registration failed");
+    }
+
+    /**
+     * @dev Set FeeM registry configuration
+     * @param _feeMRegistry Address of the FeeM registry contract
+     * @param _feeMCode Registration code for FeeM
+     */
+    function setFeeMConfig(address _feeMRegistry, uint256 _feeMCode) external onlyOwner {
+        require(_feeMRegistry != address(0), "Zero address not allowed");
+        feeMRegistry = _feeMRegistry;
+        feeMCode = _feeMCode;
     }
 
     function pause() external onlyOwner { _pause(); }
@@ -2030,19 +2050,6 @@ contract StonerFeePool is
         
         minimumStakingPeriod = 0; // No minimum period
         stakingActive = !paused();
-    }
-
-    /**
-     * @dev Get transaction cost estimates
-     */
-    function getGasEstimates() external pure returns (
-        uint256 stakeGas,
-        uint256 unstakeGas,
-        uint256 claimGas,
-        uint256 batchStakePerToken,
-        uint256 batchUnstakePerToken
-    ) {
-        return (150000, 120000, 80000, 120000, 100000);
     }
 
     /**
