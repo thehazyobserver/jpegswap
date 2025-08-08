@@ -1765,31 +1765,9 @@ contract StakeReceipt is ERC721Enumerable, Ownable {
     
     uint256 private _currentReceiptId;
 
-    // � SONIC FEEM INTEGRATION
-
-
-
-    // �📊 THE GRAPH ANALYTICS - Enhanced Events
     event BaseURIUpdated(string newBaseURI);
     event PoolSet(address pool);
     event ReceiptBurned(address indexed user, uint256 indexed receiptTokenId, uint256 indexed originalTokenId);
-    
-    // Enhanced analytics events for The Graph
-    event ReceiptMinted(
-        address indexed user,
-        address indexed pool,
-        uint256 indexed receiptTokenId,
-        uint256 originalTokenId,
-        uint256 timestamp
-    );
-    
-    event ReceiptActivity(
-        address indexed user,
-        address indexed pool,
-        uint256 indexed receiptTokenId,
-        string action, // "minted", "burned", "transferred"
-        uint256 timestamp
-    );
 
     error OnlyPool();
     error NonTransferable();
@@ -1824,10 +1802,6 @@ contract StakeReceipt is ERC721Enumerable, Ownable {
         
         _mint(to, receiptTokenId);
         
-        // Enhanced analytics event for The Graph
-        emit ReceiptMinted(to, pool, receiptTokenId, originalTokenId, block.timestamp);
-        emit ReceiptActivity(to, pool, receiptTokenId, "minted", block.timestamp);
-        
         return receiptTokenId;
     }
 
@@ -1841,16 +1815,6 @@ contract StakeReceipt is ERC721Enumerable, Ownable {
         // delete receiptMinter[receiptTokenId];
         
         emit ReceiptBurned(owner, receiptTokenId, originalTokenId);
-        
-        // 📊 Enhanced Analytics Events for The Graph Protocol
-        emit ReceiptActivity(
-            owner,              // user who owned the receipt
-            msg.sender,         // pool address
-            receiptTokenId,
-            "burned",
-            block.timestamp
-        );
-        
         _burn(receiptTokenId);
     }
 
@@ -1913,50 +1877,6 @@ contract StakeReceipt is ERC721Enumerable, Ownable {
             receipts[i] = receiptId;
             originalTokens[i] = receiptToOriginalToken[receiptId];
         }
-    }
-
-    /**
-     * @dev Get user receipts with pagination (gas-efficient for large portfolios)
-     * @param user User address
-     * @param offset Starting index (0 for first page)
-     * @param limit Maximum number of results (recommended: 100 or less)
-     */
-    function getUserReceiptsPaginated(address user, uint256 offset, uint256 limit) 
-        external 
-        view 
-        returns (
-            uint256[] memory receipts, 
-            uint256[] memory originalTokens,
-            uint256 totalBalance,
-            bool hasMore
-        ) 
-    {
-        uint256 balance = balanceOf(user);
-        totalBalance = balance;
-        
-        if (offset >= balance) {
-            receipts = new uint256[](0);
-            originalTokens = new uint256[](0);
-            hasMore = false;
-            return (receipts, originalTokens, totalBalance, hasMore);
-        }
-        
-        uint256 end = offset + limit;
-        if (end > balance) {
-            end = balance;
-        }
-        
-        uint256 resultLength = end - offset;
-        receipts = new uint256[](resultLength);
-        originalTokens = new uint256[](resultLength);
-        
-        for (uint256 i = 0; i < resultLength; i++) {
-            uint256 receiptId = tokenOfOwnerByIndex(user, offset + i);
-            receipts[i] = receiptId;
-            originalTokens[i] = receiptToOriginalToken[receiptId];
-        }
-        
-        hasMore = end < balance;
     }
 
     function getReceiptDetails(uint256 receiptTokenId) external view returns (
@@ -2063,7 +1983,7 @@ contract StakeReceipt is ERC721Enumerable, Ownable {
     }
 
     /**
-     * @dev Get user's receipt history with timestamps (LEGACY - may cause gas issues with many receipts)
+     * @dev Get user's receipt history with timestamps
      * @param user User address to check
      */
     function getUserReceiptHistory(address user) external view returns (
@@ -2089,61 +2009,7 @@ contract StakeReceipt is ERC721Enumerable, Ownable {
     }
 
     /**
-     * @dev Get user receipt history with pagination (gas-efficient for large portfolios)
-     * @param user User address
-     * @param offset Starting index (0 for first page)
-     * @param limit Maximum number of results (recommended: 50 or less)
-     */
-    function getUserReceiptHistoryPaginated(address user, uint256 offset, uint256 limit) 
-        external 
-        view 
-        returns (
-            uint256[] memory receiptIds,
-            uint256[] memory originalTokenIds,
-            uint256[] memory mintTimes,
-            uint256[] memory ages,
-            uint256 totalBalance,
-            bool hasMore
-        ) 
-    {
-        uint256 balance = balanceOf(user);
-        totalBalance = balance;
-        
-        if (offset >= balance) {
-            // Return empty arrays if offset is beyond balance
-            receiptIds = new uint256[](0);
-            originalTokenIds = new uint256[](0);
-            mintTimes = new uint256[](0);
-            ages = new uint256[](0);
-            hasMore = false;
-            return (receiptIds, originalTokenIds, mintTimes, ages, totalBalance, hasMore);
-        }
-        
-        uint256 end = offset + limit;
-        if (end > balance) {
-            end = balance;
-        }
-        
-        uint256 resultLength = end - offset;
-        receiptIds = new uint256[](resultLength);
-        originalTokenIds = new uint256[](resultLength);
-        mintTimes = new uint256[](resultLength);
-        ages = new uint256[](resultLength);
-        
-        for (uint256 i = 0; i < resultLength; i++) {
-            uint256 receiptId = tokenOfOwnerByIndex(user, offset + i);
-            receiptIds[i] = receiptId;
-            originalTokenIds[i] = receiptToOriginalToken[receiptId];
-            mintTimes[i] = receiptMintTime[receiptId];
-            ages[i] = receiptMintTime[receiptId] > 0 ? 
-                block.timestamp - receiptMintTime[receiptId] : 0;
-        }
-        
-        hasMore = end < balance;
-    }
-
-    /**
-     * @dev Get collection timeline statistics (gas-optimized with limit)
+     * @dev Get collection timeline statistics
      */
     function getCollectionTimeline() external view returns (
         uint256 totalMinted,
@@ -2162,10 +2028,7 @@ contract StakeReceipt is ERC721Enumerable, Ownable {
             oldestActive = block.timestamp;
             newestActive = 0;
             
-            // 🎯 GAS OPTIMIZATION: Limit iterations to prevent gas issues
-            uint256 maxIterations = currentSupply > 100 ? 100 : currentSupply;
-            
-            for (uint256 i = 0; i < maxIterations; i++) {
+            for (uint256 i = 0; i < currentSupply; i++) {
                 uint256 tokenId = tokenByIndex(i);
                 uint256 mintTime = receiptMintTime[tokenId];
                 
@@ -2182,51 +2045,12 @@ contract StakeReceipt is ERC721Enumerable, Ownable {
                 }
             }
             
-            // Calculate average based on sampled tokens
-            averageAge = maxIterations > 0 ? totalAge / maxIterations : 0;
+            averageAge = currentSupply > 0 ? totalAge / currentSupply : 0;
             oldestActive = oldestActive < block.timestamp ? 
                 block.timestamp - oldestActive : 0;
             newestActive = newestActive > 0 ? 
                 block.timestamp - newestActive : 0;
         }
-    }
-
-    /**
-     * @dev Get paginated collection timeline for detailed analysis
-     * @param offset Starting index for pagination
-     * @param limit Maximum items to return (capped at 100)
-     */
-    function getCollectionTimelinePaginated(uint256 offset, uint256 limit) external view returns (
-        uint256[] memory tokenIds,
-        uint256[] memory mintTimes,
-        uint256[] memory ages,
-        bool hasMore
-    ) {
-        uint256 currentSupply = totalSupply();
-        if (offset >= currentSupply) {
-            return (new uint256[](0), new uint256[](0), new uint256[](0), false);
-        }
-        
-        // Cap limit at 100 for gas efficiency
-        if (limit > 100) limit = 100;
-        
-        uint256 remaining = currentSupply - offset;
-        uint256 actualLimit = remaining < limit ? remaining : limit;
-        
-        tokenIds = new uint256[](actualLimit);
-        mintTimes = new uint256[](actualLimit);
-        ages = new uint256[](actualLimit);
-        
-        for (uint256 i = 0; i < actualLimit; i++) {
-            uint256 tokenId = tokenByIndex(offset + i);
-            uint256 mintTime = receiptMintTime[tokenId];
-            
-            tokenIds[i] = tokenId;
-            mintTimes[i] = mintTime;
-            ages[i] = mintTime > 0 ? block.timestamp - mintTime : 0;
-        }
-        
-        hasMore = offset + actualLimit < currentSupply;
     }
     
     /// @dev Register my contract on Sonic FeeM

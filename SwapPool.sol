@@ -1405,12 +1405,12 @@ contract SwapPoolNative is
     uint256 public stonerShare; // Percentage (0–100)
     bool public initialized;
 
-    // 🎯 LIQUIDITY MANAGEMENT - Optimized for Sonic Blockchain
-    uint256 public minPoolSize = 2; // Minimum tokens required for swaps (Sonic optimized)
+    // 🎯 LIQUIDITY MANAGEMENT
+    uint256 public minPoolSize = 5; // Minimum tokens required for swaps (configurable)
     
-    // 🎯 CONFIGURABLE BATCH LIMITS - Sonic Blockchain Optimized
-    uint256 public maxBatchSize = 50;           // High throughput batch operations for Sonic
-    uint256 public maxUnstakeAllLimit = 100;     // Maximum unstaking flexibility for Sonic
+    // 🎯 CONFIGURABLE BATCH LIMITS
+    uint256 public maxBatchSize = 10;           // Configurable batch operation limit
+    uint256 public maxUnstakeAllLimit = 20;     // Configurable unstake all limit
 
     // 🎯 POOL TOKEN TRACKING - Track all available tokens
     uint256[] public poolTokens;                    // Array of all tokens in pool
@@ -1448,11 +1448,7 @@ contract SwapPoolNative is
     uint256[] private _batchReceiptTokens;
     uint256[] private _batchReturnedTokens;
 
-    // 📊 THE GRAPH ANALYTICS - Minimal Storage, Events First
-    // Track first-time users for analytics (minimal storage)
-    mapping(address => bool) private _hasSwapped;
-
-    // Simplified Events (backwards compatible)
+    // Events
     event SwapExecuted(address indexed user, uint256 tokenIdIn, uint256 tokenIdOut, uint256 feePaid);
     event BatchSwapExecuted(address indexed user, uint256 swapCount, uint256 totalFeePaid);
     event Staked(address indexed user, uint256 tokenId, uint256 receiptTokenId);
@@ -1460,11 +1456,6 @@ contract SwapPoolNative is
     event BatchUnstaked(address indexed user, uint256[] receiptTokenIds, uint256[] tokensReceived);
     event RewardsClaimed(address indexed user, uint256 amount);
     event RewardsDistributed(uint256 amount);
-    
-    // Enhanced events for The Graph (additional analytics)
-    event UserFirstSwap(address indexed user, address indexed pool, uint256 timestamp);
-    event VolumeUpdate(address indexed pool, uint256 swapVolume, uint256 timestamp);
-    event StakingAnalytics(address indexed user, address indexed pool, uint256 tokenId, uint256 duration, string action);
     event SwapFeeUpdated(uint256 newFeeInWei);
     event StonerShareUpdated(uint256 newShare);
     event BatchLimitsUpdated(uint256 newMaxBatchSize, uint256 newMaxUnstakeAll);
@@ -1572,9 +1563,6 @@ contract SwapPoolNative is
         minimumLiquidity
         updateReward(address(0)) // Update global rewards
     {
-        // 🛡️ FLASHLOAN PROTECTION - Snapshot balance before
-        uint256 contractBalanceBefore = IERC721(nftCollection).balanceOf(address(this));
-        
         // 🛡️ ENHANCED VALIDATION
         if (IERC721(nftCollection).ownerOf(tokenIdIn) != msg.sender) revert NotTokenOwner();
         if (IERC721(nftCollection).getApproved(tokenIdIn) != address(this) && 
@@ -1594,11 +1582,11 @@ contract SwapPoolNative is
             rewardAmount = msg.value - stonerAmount;
         }
 
-        // 🔄 Update pool token tracking FIRST (CEI pattern - Effects)
+        // 🔄 Update pool token tracking FIRST (CEI pattern)
         _removeTokenFromPool(tokenIdOut);
         _addTokenToPool(tokenIdIn);
 
-        // 🎯 DISTRIBUTE REMAINING AS REWARDS TO STAKERS (ENHANCED PRECISION - Effects)
+        // 🎯 DISTRIBUTE REMAINING AS REWARDS TO STAKERS (ENHANCED PRECISION)
         if (rewardAmount > 0 && totalStaked > 0) {
             // Use higher precision to minimize rounding errors
             uint256 rewardWithRemainder = (rewardAmount * PRECISION) + rewardRemainder;
@@ -1612,25 +1600,14 @@ contract SwapPoolNative is
             emit RewardsDistributed(rewardAmount);
         }
 
-        // 📊 THE GRAPH ANALYTICS - Emit events for offchain tracking (Effects)
-        _emitSwapAnalytics(msg.sender, msg.value, 1);
-
-        // 🔄 INTERACTIONS LAST (CEI pattern - Interactions)
         // Execute the swap - NFT transfers
         IERC721(nftCollection).safeTransferFrom(msg.sender, address(this), tokenIdIn);
         IERC721(nftCollection).safeTransferFrom(address(this), msg.sender, tokenIdOut);
 
-        // External calls LAST
+        // External calls LAST (CEI pattern)
         if (stonerAmount > 0) {
             payable(stonerPool).sendValue(stonerAmount);
         }
-
-        // 🛡️ FLASHLOAN PROTECTION - Verify balance unchanged (1-to-1 swap)
-        uint256 contractBalanceAfter = IERC721(nftCollection).balanceOf(address(this));
-        require(contractBalanceAfter == contractBalanceBefore, "Flashloan protection: balance mismatch");
-
-        // 📊 THE GRAPH ANALYTICS - Emit events for offchain tracking
-        _emitSwapAnalytics(msg.sender, msg.value, 1);
 
         emit SwapExecuted(msg.sender, tokenIdIn, tokenIdOut, msg.value);
     }
@@ -1649,9 +1626,6 @@ contract SwapPoolNative is
         minimumLiquidity
         updateReward(address(0)) // Update global rewards
     {
-        // 🛡️ FLASHLOAN PROTECTION - Snapshot balance before batch
-        uint256 contractBalanceBefore = IERC721(nftCollection).balanceOf(address(this));
-        
         // 🛡️ BATCH VALIDATION
         require(tokenIdsIn.length > 0 && tokenIdsOut.length > 0, "Empty arrays");
         require(tokenIdsIn.length == tokenIdsOut.length, "Array length mismatch");
@@ -1724,13 +1698,6 @@ contract SwapPoolNative is
             payable(stonerPool).sendValue(stonerAmount);
         }
 
-        // 🛡️ FLASHLOAN PROTECTION - Verify balance unchanged (equal swap)
-        uint256 contractBalanceAfter = IERC721(nftCollection).balanceOf(address(this));
-        require(contractBalanceAfter == contractBalanceBefore, "Flashloan protection: balance mismatch");
-
-        // 📊 THE GRAPH ANALYTICS - Emit events for offchain tracking
-        _emitSwapAnalytics(msg.sender, msg.value, tokenIdsIn.length);
-
         // Emit batch completion event
         emit BatchSwapExecuted(msg.sender, tokenIdsIn.length, msg.value);
     }
@@ -1763,12 +1730,6 @@ contract SwapPoolNative is
         originalToReceiptToken[tokenId] = receiptTokenId;
         userStakes[msg.sender].push(receiptTokenId);
         totalStaked++;
-
-        // 📊 THE GRAPH ANALYTICS - Track first-time users
-        if (!_hasSwapped[msg.sender]) {
-            _hasSwapped[msg.sender] = true;
-            emit UserFirstSwap(msg.sender, address(this), block.timestamp);
-        }
 
         emit Staked(msg.sender, tokenId, receiptTokenId);
     }
@@ -1867,6 +1828,14 @@ contract SwapPoolNative is
         if (!stakeInfo.active) revert TokenNotStaked();
         
         uint256 originalTokenId = receiptToOriginalToken[receiptTokenId];
+        
+        // 🎯 AUTO-CLAIM REWARDS BEFORE UNSTAKING
+        uint256 rewardsToSend = pendingRewards[msg.sender];
+        if (rewardsToSend > 0) {
+            pendingRewards[msg.sender] = 0;
+            payable(msg.sender).sendValue(rewardsToSend);
+            emit RewardsClaimed(msg.sender, rewardsToSend);
+        }
         
         // Mark stake as inactive
         stakeInfo.active = false;
@@ -1996,20 +1965,6 @@ contract SwapPoolNative is
                 require(tokenIds[i] != tokenIds[j], "Duplicate token ID found");
             }
         }
-    }
-
-    /**
-     * @dev Emit analytics events for The Graph (gas optimized)
-     */
-    function _emitSwapAnalytics(address user, uint256 swapValue, uint256 /*swapCount*/) internal {
-        // Track first-time users
-        if (!_hasSwapped[user]) {
-            _hasSwapped[user] = true;
-            emit UserFirstSwap(user, address(this), block.timestamp);
-        }
-        
-        // Emit volume update for The Graph tracking
-        emit VolumeUpdate(address(this), swapValue, block.timestamp);
     }
 
     // 📊 COMPLETE REWARD CALCULATION FUNCTIONS
@@ -2192,24 +2147,27 @@ contract SwapPoolNative is
     }
 
     /**
-     * @dev Get comprehensive user portfolio analytics (LEGACY - may cause gas issues)
+     * @dev Get comprehensive user portfolio analytics
      */
     function getUserPortfolio(address user) external view returns (
         uint256 userTotalStaked,
+        uint256 totalEarned,
         uint256 userPendingRewards,
         uint256 averageStakingTime,
-        uint256[] memory activeStakes
+        uint256[] memory activeStakes,
+        uint256 totalSwapsCount,
+        uint256 totalSwapVolume
     ) {
         uint256[] memory userReceiptTokens = userStakes[user];
         uint256 userReceiptLength = userReceiptTokens.length; // Gas optimization: cache array length
-        uint256[] memory tempStakes = new uint256[](userReceiptLength);
+        uint256[] memory activeReceiptTokens = new uint256[](userReceiptLength);
         uint256 activeCount = 0;
-        uint256 totalTime = 0;
+        uint256 totalStakingTime = 0;
         
         for (uint256 i = 0; i < userReceiptLength; i++) {
             if (stakeInfos[userReceiptTokens[i]].active) {
-                tempStakes[activeCount] = userReceiptTokens[i];
-                totalTime += block.timestamp - stakeInfos[userReceiptTokens[i]].stakedAt;
+                activeReceiptTokens[activeCount] = userReceiptTokens[i];
+                totalStakingTime += block.timestamp - stakeInfos[userReceiptTokens[i]].stakedAt;
                 activeCount++;
             }
         }
@@ -2217,71 +2175,18 @@ contract SwapPoolNative is
         // Resize active stakes array
         activeStakes = new uint256[](activeCount);
         for (uint256 i = 0; i < activeCount; i++) {
-            activeStakes[i] = tempStakes[i];
+            activeStakes[i] = activeReceiptTokens[i];
         }
         
         return (
             activeCount,
+            0, // totalEarned - would need additional tracking
             earned(user),
-            activeCount > 0 ? totalTime / activeCount : 0,
-            activeStakes
+            activeCount > 0 ? totalStakingTime / activeCount : 0,
+            activeStakes,
+            0, // totalSwapsCount - would need additional tracking
+            0  // totalSwapVolume - would need additional tracking
         );
-    }
-
-    /**
-     * @dev Get user portfolio with pagination (gas-efficient for power users)
-     * @param user User address
-     * @param offset Starting index for stakes
-     * @param limit Maximum number of stakes to process
-     */
-    function getUserPortfolioPaginated(address user, uint256 offset, uint256 limit) 
-        external 
-        view 
-        returns (
-            uint256 userTotalStaked,
-            uint256 userPendingRewards,
-            uint256 averageStakingTime,
-            uint256[] memory activeStakes,
-            uint256 totalStakes,
-            bool hasMore
-        ) 
-    {
-        uint256[] memory userReceiptTokens = userStakes[user];
-        totalStakes = userReceiptTokens.length;
-        userPendingRewards = earned(user);
-        
-        if (offset >= totalStakes) {
-            activeStakes = new uint256[](0);
-            hasMore = false;
-            return (0, userPendingRewards, 0, activeStakes, totalStakes, hasMore);
-        }
-        
-        uint256 end = offset + limit;
-        if (end > totalStakes) {
-            end = totalStakes;
-        }
-        
-        uint256[] memory tempStakes = new uint256[](end - offset);
-        uint256 activeCount = 0;
-        uint256 totalTime = 0;
-        
-        for (uint256 i = offset; i < end; i++) {
-            if (stakeInfos[userReceiptTokens[i]].active) {
-                tempStakes[activeCount] = userReceiptTokens[i];
-                totalTime += block.timestamp - stakeInfos[userReceiptTokens[i]].stakedAt;
-                activeCount++;
-            }
-        }
-        
-        // Resize active stakes array
-        activeStakes = new uint256[](activeCount);
-        for (uint256 i = 0; i < activeCount; i++) {
-            activeStakes[i] = tempStakes[i];
-        }
-        
-        hasMore = end < totalStakes;
-        userTotalStaked = activeCount;
-        averageStakingTime = activeCount > 0 ? totalTime / activeCount : 0;
     }
 
     /**
@@ -2517,6 +2422,16 @@ contract SwapPoolNative is
     /**
      * @dev Get detailed gas estimates for all operations
      */
+    function getGasEstimates() external pure returns (
+        uint256 swapGas,
+        uint256 stakeGas,
+        uint256 unstakeGas,
+        uint256 claimGas,
+        uint256 batchUnstakePerToken
+    ) {
+        return (200000, 180000, 150000, 80000, 150000);
+    }
+
     /**
      * @dev Preview swap transaction before execution
      */

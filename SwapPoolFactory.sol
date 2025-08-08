@@ -1026,33 +1026,11 @@ contract SwapPoolFactoryNative is Ownable, ReentrancyGuard {
     mapping(address => address) public collectionToPool;
     address[] public allPools;
 
-    // � SONIC FEEM INTEGRATION
-
-
-
-    // �📊 THE GRAPH ANALYTICS - Enhanced Events for Pool Management
     event PoolCreated(address indexed collection, address indexed pool, address indexed owner);
     event PoolDeployed(address indexed newPool, address indexed collection, address indexed deployer);
     event FactoryDeployed(address indexed implementation, address indexed owner);
     event ImplementationUpdated(address indexed oldImpl, address indexed newImpl);
     event BatchRewardsClaimed(address indexed user, uint256 poolCount, uint256 totalAmount);
-    
-    // Enhanced analytics events for The Graph
-    event PoolCreatedWithDetails(
-        address indexed collection,
-        address indexed pool,
-        address indexed owner,
-        uint256 swapFee,
-        uint256 stonerShare,
-        uint256 timestamp
-    );
-    
-    event PoolActivity(
-        address indexed pool,
-        address indexed collection,
-        uint256 timestamp,
-        string activityType
-    );
 
     error ZeroAddressNotAllowed();
     error PoolAlreadyExists();
@@ -1112,17 +1090,6 @@ contract SwapPoolFactoryNative is Ownable, ReentrancyGuard {
 
         emit PoolCreated(nftCollection, proxyAddress, msg.sender);
         emit PoolDeployed(proxyAddress, nftCollection, msg.sender);
-        
-        // Enhanced analytics event for The Graph
-        emit PoolCreatedWithDetails(
-            nftCollection,
-            proxyAddress,
-            msg.sender,
-            swapFeeInWei,
-            stonerShare,
-            block.timestamp
-        );
-        
         return proxyAddress;
     }
 
@@ -1318,6 +1285,42 @@ contract SwapPoolFactoryNative is Ownable, ReentrancyGuard {
     }
 
     /**
+     * @dev Estimate gas costs for batch operations
+     * @param batchSize Number of pools to process
+     */
+    function estimateBatchGasCosts(uint256 batchSize)
+        external
+        view
+        returns (
+            uint256 estimatedGas,
+            uint256 recommendedBatchSize,
+            uint256 totalBatches,
+            bool needsPagination
+        )
+    {
+        uint256 poolCount = allPools.length;
+        needsPagination = poolCount > 50;
+        
+        // Rough estimates based on typical operations
+        uint256 baseGas = 21000; // Transaction base cost
+        uint256 gasPerPool = 45000; // Estimated gas per pool claim
+        
+        if (batchSize == 0 || batchSize > poolCount) {
+            batchSize = poolCount;
+        }
+        
+        estimatedGas = baseGas + (gasPerPool * batchSize);
+        
+        // Recommend batch size to stay under gas limits
+        uint256 targetGasLimit = 8000000; // Conservative estimate
+        recommendedBatchSize = (targetGasLimit - baseGas) / gasPerPool;
+        if (recommendedBatchSize > 20) recommendedBatchSize = 20; // Safety cap
+        if (recommendedBatchSize > poolCount) recommendedBatchSize = poolCount;
+        
+        totalBatches = (poolCount + recommendedBatchSize - 1) / recommendedBatchSize; // Ceiling division
+    }
+
+    /**
      * @dev Get user's pending rewards across all pools
      * @param user User address to check
      */
@@ -1330,10 +1333,7 @@ contract SwapPoolFactoryNative is Ownable, ReentrancyGuard {
         uint256[] memory amounts = new uint256[](allPools.length);
         uint256 count = 0;
         
-        // 🎯 GAS OPTIMIZATION: Limit iterations for large pool counts
-        uint256 maxIterations = allPools.length > 100 ? 100 : allPools.length;
-        
-        for (uint256 i = 0; i < maxIterations; i++) {
+        for (uint256 i = 0; i < allPools.length; i++) {
             try ISwapPoolRewards(allPools[i]).earned(user) returns (uint256 pending) {
                 if (pending > 0) {
                     validPools[count] = allPools[i];
@@ -1360,10 +1360,7 @@ contract SwapPoolFactoryNative is Ownable, ReentrancyGuard {
      * @param user User address to check
      */
     function getUserTotalPendingRewards(address user) external view returns (uint256 totalPending) {
-        // 🎯 GAS OPTIMIZATION: Limit iterations for large pool counts
-        uint256 maxIterations = allPools.length > 100 ? 100 : allPools.length;
-        
-        for (uint256 i = 0; i < maxIterations; i++) {
+        for (uint256 i = 0; i < allPools.length; i++) {
             try ISwapPoolRewards(allPools[i]).earned(user) returns (uint256 pending) {
                 totalPending += pending;
             } catch {
@@ -1377,10 +1374,7 @@ contract SwapPoolFactoryNative is Ownable, ReentrancyGuard {
      * @param user User address to check
      */
     function getUserActivePoolCount(address user) external view returns (uint256 activeCount) {
-        // 🎯 GAS OPTIMIZATION: Limit iterations for large pool counts
-        uint256 maxIterations = allPools.length > 100 ? 100 : allPools.length;
-        
-        for (uint256 i = 0; i < maxIterations; i++) {
+        for (uint256 i = 0; i < allPools.length; i++) {
             try ISwapPoolRewards(allPools[i]).earned(user) returns (uint256 pending) {
                 if (pending > 0) {
                     activeCount++;
@@ -1444,8 +1438,6 @@ contract SwapPoolFactoryNative is Ownable, ReentrancyGuard {
 
     /**
      * @dev Get detailed analytics across all pools for dashboard
-     * @notice For production use, analytics should be queried from The Graph Protocol
-     * for better performance and real-time data. This function provides basic fallback.
      */
     function getGlobalAnalytics() external view returns (
         uint256 totalValueLocked,      // Total NFTs across all pools
@@ -1521,13 +1513,6 @@ contract SwapPoolFactoryNative is Ownable, ReentrancyGuard {
         for (uint256 i = 0; i < allPools.length; i++) {
             try ISwapPoolNative(allPools[i]).unpause() {} catch {}
         }
-    }
-
-    // 🚨 EMERGENCY ETH WITHDRAWAL
-    function emergencyWithdrawETH() external onlyOwner {
-        uint256 balance = address(this).balance;
-        require(balance > 0, "No ETH to withdraw");
-        payable(owner()).transfer(balance);
     }
 
     function updateImplementation(address newImplementation) external onlyOwner {
@@ -1731,10 +1716,7 @@ contract SwapPoolFactoryNative is Ownable, ReentrancyGuard {
         
         warnings = new string[](5); // Max 5 warnings
         
-        // 🎯 GAS OPTIMIZATION: Limit iterations for large pool counts
-        uint256 maxIterations = allPools.length > 100 ? 100 : allPools.length;
-        
-        for (uint256 i = 0; i < maxIterations; i++) {
+        for (uint256 i = 0; i < allPools.length; i++) {
             try ISwapPoolRewards(allPools[i]).nftCollection() returns (address collection) {
                 if (collectionToPool[collection] == allPools[i]) {
                     try IERC721(collection).balanceOf(allPools[i]) returns (uint256 balance) {

@@ -1379,7 +1379,6 @@ interface IERC721Upgradeable is IERC165Upgradeable {
 
 pragma solidity ^0.8.19;
 
-import "@openzeppelin/contracts-upgradeable/utils/structs/EnumerableSetUpgradeable.sol";
 
 interface IStakeReceipt {
     function mint(address to, uint256 originalTokenId) external returns (uint256);
@@ -1423,36 +1422,11 @@ contract StonerFeePool is
     mapping(address => uint256) public rewards;
     mapping(address => uint256) public userRewardPerTokenPaid;
 
-    // 🎯 UNIQUE STAKER TRACKING WITH ENUMERABLESET
-    using EnumerableSetUpgradeable for EnumerableSetUpgradeable.AddressSet;
-    EnumerableSetUpgradeable.AddressSet private uniqueStakers;
-
-    // � SONIC FEEM INTEGRATION
-
-
-
-    // �📊 THE GRAPH ANALYTICS - Enhanced Events
     event Staked(address indexed user, uint256 indexed tokenId);
     event Unstaked(address indexed user, uint256 indexed returnedTokenId);
     event RewardReceived(address indexed sender, uint256 amount);
     event RewardClaimed(address indexed user, uint256 amount);
     event EmergencyUnstake(uint256 indexed tokenId, address indexed to);
-    
-    // Enhanced analytics events for The Graph
-    event StonerStakeActivity(
-        address indexed user,
-        uint256 indexed tokenId,
-        string action, // "stake" or "unstake"
-        uint256 timestamp,
-        uint256 stakingDuration // 0 for stake, duration for unstake
-    );
-    
-    event StonerRewardActivity(
-        address indexed user,
-        uint256 amount,
-        uint256 timestamp,
-        string activityType // "received" or "claimed"
-    );
 
     error NotStaked();
     error AlreadyStaked();
@@ -1493,9 +1467,6 @@ contract StonerFeePool is
             active: true
         });
         
-        // 🎯 TRACK UNIQUE STAKERS
-        uniqueStakers.add(msg.sender);
-        
         // Mint receipt token (ignore return value for simplicity in StonerFeePool)
         receiptToken.mint(msg.sender, tokenId);
         
@@ -1503,7 +1474,6 @@ contract StonerFeePool is
         totalStaked++;
         
         emit Staked(msg.sender, tokenId);
-        emit StonerStakeActivity(msg.sender, tokenId, "stake", block.timestamp, 0);
     }
 
     function stakeMultiple(uint256[] calldata tokenIds) external whenNotPaused {
@@ -1522,9 +1492,6 @@ contract StonerFeePool is
         
         // Update rewards once for the user
         _updateReward(msg.sender);
-        
-        // 🎯 TRACK UNIQUE STAKERS
-        uniqueStakers.add(msg.sender);
         
         // Process all stakes
         for (uint256 i = 0; i < tokenIdsLength; i++) {
@@ -1546,7 +1513,6 @@ contract StonerFeePool is
             totalStaked++;
             
             emit Staked(msg.sender, tokenId);
-            emit StonerStakeActivity(msg.sender, tokenId, "stake", block.timestamp, 0);
         }
     }
 
@@ -1555,6 +1521,18 @@ contract StonerFeePool is
         
         // Update rewards before any state changes
         _updateReward(msg.sender);
+        
+        // 🎯 AUTO-CLAIM REWARDS BEFORE UNSTAKING
+        uint256 reward = rewards[msg.sender];
+        if (reward > 0) {
+            rewards[msg.sender] = 0;
+            totalRewardsClaimed += reward;
+            
+            (bool success, ) = payable(msg.sender).call{value: reward}("");
+            require(success, "Transfer failed");
+            
+            emit RewardClaimed(msg.sender, reward);
+        }
         
         // Cleanup staking state
         receiptToken.burn(tokenId);
@@ -1567,22 +1545,10 @@ contract StonerFeePool is
         _removeFromArray(stakedTokens[msg.sender], tokenId);
         totalStaked--;
         
-        // 🎯 REMOVE FROM UNIQUE STAKERS IF NO MORE STAKES
-        if (stakedTokens[msg.sender].length == 0) {
-            uniqueStakers.remove(msg.sender);
-        }
-        
         // Return NFT
         stonerNFT.safeTransferFrom(address(this), msg.sender, tokenId);
         
         emit Unstaked(msg.sender, tokenId);
-        emit StonerStakeActivity(
-            msg.sender, 
-            tokenId, 
-            "unstake", 
-            block.timestamp, 
-            block.timestamp - stakeInfos[tokenId].stakedAt
-        );
     }
 
     function unstakeMultiple(uint256[] calldata tokenIds) external whenNotPaused nonReentrant {
@@ -1601,6 +1567,18 @@ contract StonerFeePool is
         // Update rewards once for the user
         _updateReward(msg.sender);
         
+        // 🎯 AUTO-CLAIM ALL REWARDS
+        uint256 reward = rewards[msg.sender];
+        if (reward > 0) {
+            rewards[msg.sender] = 0;
+            totalRewardsClaimed += reward;
+            
+            (bool success, ) = payable(msg.sender).call{value: reward}("");
+            require(success, "Transfer failed");
+            
+            emit RewardClaimed(msg.sender, reward);
+        }
+        
         // Process all unstakes
         for (uint256 i = 0; i < tokenIdsLength; i++) {
             uint256 tokenId = tokenIds[i];
@@ -1617,18 +1595,6 @@ contract StonerFeePool is
             
             stonerNFT.safeTransferFrom(address(this), msg.sender, tokenId);
             emit Unstaked(msg.sender, tokenId);
-            emit StonerStakeActivity(
-                msg.sender, 
-                tokenId, 
-                "unstake", 
-                block.timestamp, 
-                block.timestamp - stakeInfos[tokenId].stakedAt
-            );
-        }
-        
-        // 🎯 REMOVE FROM UNIQUE STAKERS IF NO MORE STAKES
-        if (stakedTokens[msg.sender].length == 0) {
-            uniqueStakers.remove(msg.sender);
         }
     }
 
@@ -1642,11 +1608,10 @@ contract StonerFeePool is
         rewardRemainder = rewardWithRemainder % totalStaked;
         
         // Add rewards to the reward pool with enhanced precision
-        rewardPerTokenStored += rewardPerTokenAmount / (PRECISION / 1e18); // Proper precision conversion
+        rewardPerTokenStored += rewardPerTokenAmount / 1e9; // Convert back from PRECISION to 1e18
         totalPrecisionRewards += rewardWithRemainder;
 
         emit RewardReceived(msg.sender, msg.value);
-        emit StonerRewardActivity(msg.sender, msg.value, block.timestamp, "received");
     }
 
     function claimNative() external nonReentrant {
@@ -1679,7 +1644,7 @@ contract StonerFeePool is
 
     function _updateReward(address user) internal {
         uint256 userBalance = stakedTokens[user].length;
-        uint256 owed = (userBalance * (rewardPerTokenStored - userRewardPerTokenPaid[user])) / PRECISION;
+        uint256 owed = (userBalance * (rewardPerTokenStored - userRewardPerTokenPaid[user]));
         rewards[user] += owed;
         userRewardPerTokenPaid[user] = rewardPerTokenStored;
     }
@@ -1760,14 +1725,7 @@ contract StonerFeePool is
     function pause() external onlyOwner { _pause(); }
     function unpause() external onlyOwner { _unpause(); }
 
-    // � EMERGENCY ETH WITHDRAWAL
-    function emergencyWithdrawETH() external onlyOwner {
-        uint256 balance = address(this).balance;
-        require(balance > 0, "No ETH to withdraw");
-        payable(owner()).transfer(balance);
-    }
-
-    // �📊 VIEW FUNCTIONS
+    // 📊 VIEW FUNCTIONS
     function getStakedTokens(address user) external view returns (uint256[] memory) {
         return stakedTokens[user];
     }
@@ -1850,7 +1808,7 @@ contract StonerFeePool is
         uint256 stakingAPR
     ) {
         // Count unique stakers
-        totalUniqueStakers = uniqueStakers.length();
+        totalUniqueStakers = 0; // Would need separate tracking in production
         
         averageStakePerUser = totalStaked > 0 ? totalStaked / (totalUniqueStakers > 0 ? totalUniqueStakers : 1) : 0;
         
@@ -1866,36 +1824,6 @@ contract StonerFeePool is
         // Calculate APR based on reward rate
         if (totalStaked > 0 && rewardPerTokenStored > 0) {
             stakingAPR = (rewardPerTokenStored * 365 * 100) / 1e18; // Simplified APR
-        }
-    }
-
-    /**
-     * @dev Get unique staker count for efficient analytics
-     */
-    function getUniqueStakerCount() external view returns (uint256) {
-        return uniqueStakers.length();
-    }
-
-    /**
-     * @dev Get paginated list of unique stakers
-     * @param offset Starting index
-     * @param limit Maximum number of stakers to return (capped at 100)
-     */
-    function getUniqueStakers(uint256 offset, uint256 limit) external view returns (address[] memory stakers) {
-        uint256 totalStakers = uniqueStakers.length();
-        if (offset >= totalStakers) {
-            return new address[](0);
-        }
-        
-        // Cap limit at 100 for gas efficiency
-        if (limit > 100) limit = 100;
-        
-        uint256 remaining = totalStakers - offset;
-        uint256 actualLimit = remaining < limit ? remaining : limit;
-        
-        stakers = new address[](actualLimit);
-        for (uint256 i = 0; i < actualLimit; i++) {
-            stakers[i] = uniqueStakers.at(offset + i);
         }
     }
 
@@ -2034,6 +1962,19 @@ contract StonerFeePool is
         
         minimumStakingPeriod = 0; // No minimum period
         stakingActive = !paused();
+    }
+
+    /**
+     * @dev Get transaction cost estimates
+     */
+    function getGasEstimates() external pure returns (
+        uint256 stakeGas,
+        uint256 unstakeGas,
+        uint256 claimGas,
+        uint256 batchStakePerToken,
+        uint256 batchUnstakePerToken
+    ) {
+        return (150000, 120000, 80000, 120000, 100000);
     }
 
     /**
