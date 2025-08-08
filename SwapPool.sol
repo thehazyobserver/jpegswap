@@ -757,28 +757,6 @@ contract SwapPoolNative is
     event SwapFeeUpdated(uint256 newFeeInWei);
     event StonerShareUpdated(uint256 newShare);
     event BatchLimitsUpdated(uint256 newMaxBatchSize, uint256 newMaxUnstakeAll);
-    event MinPoolSizeUpdated(uint256 oldMinPoolSize, uint256 newMinPoolSize);
-
-    // Enhanced batch operation events
-    event BatchOperationStarted(address indexed user, string operationType, uint256 requestedCount);
-    event BatchOperationCompleted(address indexed user, string operationType, uint256 successCount, uint256 failureCount);
-    event BatchOperationError(address indexed user, string operationType, uint256 tokenId, string reason);
-
-    // Events for enhanced frontend integration
-    event PoolHealthChanged(uint256 utilizationRate, uint256 stakingRatio, bool isHealthy);
-    event LowLiquidityWarning(uint256 availableTokens, uint256 threshold);
-    event HighVolumeAlert(uint256 swapsInPeriod, uint256 period);
-
-    // Additional events for better analytics
-    event RewardRateUpdated(uint256 newRate, uint256 timestamp);
-    event UserMilestone(address indexed user, string milestone, uint256 value);
-
-    // Batch operation result tracking
-    struct BatchOperationResult {
-        uint256[] successfulTokenIds;
-        uint256[] failedTokenIds;
-        bool completed;
-    }
 
     // Custom errors
     error AlreadyInitialized();
@@ -1299,17 +1277,12 @@ contract SwapPoolNative is
         
         maxBatchSize = newMaxBatchSize;
         maxUnstakeAllLimit = newMaxUnstakeAll;
-        
         emit BatchLimitsUpdated(newMaxBatchSize, newMaxUnstakeAll);
     }
 
     function setMinPoolSize(uint256 newMinPoolSize) external onlyOwner {
         require(newMinPoolSize > 0 && newMinPoolSize <= 20, "Invalid min pool size");
-        
-        uint256 oldMinPoolSize = minPoolSize;
         minPoolSize = newMinPoolSize;
-        
-        emit MinPoolSizeUpdated(oldMinPoolSize, newMinPoolSize);
     }
 
     function pause() external onlyOwner {
@@ -1361,157 +1334,15 @@ contract SwapPoolNative is
         );
     }
 
-    function getPoolStatistics() external view returns (
-        uint256 totalSwaps,
-        uint256 totalVolume,
-        uint256 averageSwapFee,
-        uint256 lastSwapTimestamp,
-        uint256 activeStakers,
-        uint256 totalRewardsPerToken,
-        uint256 poolLiquidity
-    ) {
-        return (
-            0, // Can be implemented with a counter
-            totalRewardsDistributed,
-            swapFeeInWei,
-            lastUpdateTime,
-            totalStaked,
-            rewardPerTokenStored,
-            poolTokens.length
-        );
-    }
 
-    function getPoolHealth() external view returns (
-        uint256 utilizationRate,      // How many tokens are being actively swapped
-        uint256 stakingRatio,         // Percentage of pool that's staked
-        bool isHealthy               // Overall pool health indicator
-    ) {
-        uint256 totalTokensInContract = IERC721(nftCollection).balanceOf(address(this));
-        
-        utilizationRate = totalTokensInContract > 0 ? 
-            (poolTokens.length * 100) / totalTokensInContract : 0;
-            
-        stakingRatio = totalTokensInContract > 0 ? 
-            (totalStaked * 100) / totalTokensInContract : 0;
-            
-        isHealthy = poolTokens.length >= 10 && utilizationRate >= 50;
-        
-        return (utilizationRate, stakingRatio, isHealthy);
-    }
 
-    function getUserPortfolio(address user) external view returns (
-        uint256 userTotalStaked,
-        uint256 totalEarned,
-        uint256 userPendingRewards,
-        uint256 averageStakingTime,
-        uint256[] memory activeStakes,
-        uint256 totalSwapsCount,
-        uint256 totalSwapVolume
-    ) {
-        uint256[] memory userReceiptTokens = userStakes[user];
-        uint256 userReceiptLength = userReceiptTokens.length;
-        uint256[] memory activeReceiptTokens = new uint256[](userReceiptLength);
-        uint256 activeCount = 0;
-        uint256 totalStakingTime = 0;
-        
-        for (uint256 i = 0; i < userReceiptLength; i++) {
-            if (stakeInfos[userReceiptTokens[i]].active) {
-                activeReceiptTokens[activeCount] = userReceiptTokens[i];
-                totalStakingTime += block.timestamp - stakeInfos[userReceiptTokens[i]].stakedAt;
-                activeCount++;
-            }
-        }
-        
-        // Resize active stakes array
-        activeStakes = new uint256[](activeCount);
-        for (uint256 i = 0; i < activeCount; i++) {
-            activeStakes[i] = activeReceiptTokens[i];
-        }
-        
-        return (
-            activeCount,
-            0, // totalEarned - would need additional tracking
-            earned(user),
-            activeCount > 0 ? totalStakingTime / activeCount : 0,
-            activeStakes,
-            0, // totalSwapsCount - would need additional tracking
-            0  // totalSwapVolume - would need additional tracking
-        );
-    }
 
-    function getUserStakingMetrics(address user) external view returns (
-        uint256 rewardRate,           // Rewards per staked NFT per second
-        uint256 projectedDailyRewards,
-        uint256 estimatedYearlyETH,   // Projected yearly ETH earnings
-        uint256 averageStakingDays    // Average days staked
-    ) {
-        uint256 userActiveStakes = getUserActiveStakeCount(user);
-        if (userActiveStakes == 0) return (0, 0, 0, 0);
-        
-        // Calculate current reward rate per NFT per second
-        uint256 rewardRatePerNFT = totalStaked > 0 ? rewardPerTokenStored / totalStaked : 0;
-        
-        // Project daily rewards based on current rate
-        uint256 dailyRewards = (userActiveStakes * rewardRatePerNFT * 86400) / 1e18;
-        
-        // Project yearly ETH earnings (not APY since there's no initial investment cost)
-        uint256 yearlyETH = dailyRewards * 365;
-        
-        // Calculate average staking time
-        uint256[] memory userReceiptTokens = userStakes[user];
-        uint256 totalStakingTime = 0;
-        uint256 activeCount = 0;
-        
-        for (uint256 i = 0; i < userReceiptTokens.length; i++) {
-            if (stakeInfos[userReceiptTokens[i]].active) {
-                totalStakingTime += block.timestamp - stakeInfos[userReceiptTokens[i]].stakedAt;
-                activeCount++;
-            }
-        }
-        
-        uint256 avgStakingTime = activeCount > 0 ? totalStakingTime / activeCount : 0;
-        
-        return (
-            rewardRatePerNFT,
-            dailyRewards,
-            yearlyETH,
-            avgStakingTime / 86400 // Convert to days
-        );
-    }
 
-    function getPoolRewardStats() external view returns (
-        uint256 totalFeesCollected,    // Total swap fees collected
-        uint256 rewardsDistributed,     // Total rewards paid to stakers  
-        uint256 averageDailyVolume,     // Average daily swap volume (would need tracking)
-        uint256 currentRewardRate,      // Current reward rate per NFT
-        uint256 estimatedAPR            // Estimated Annual Percentage Rate based on recent activity
-    ) {
-        // Calculate current reward rate per NFT per day
-        uint256 dailyRatePerNFT = totalStaked > 0 ? 
-            (rewardPerTokenStored * 86400) / 1e18 / totalStaked : 0;
-            
-        // Very rough APR estimation based on swap fee and current staking ratio
-        // This assumes consistent swap volume - in reality would need historical data
-        uint256 aprEstimate = 0;
-        if (totalStaked > 0 && swapFeeInWei > 0) {
-            // Assume 1 swap per day per 10 staked NFTs as baseline
-            uint256 assumedDailySwaps = totalStaked / 10 + 1;
-            uint256 dailyRewards = (assumedDailySwaps * swapFeeInWei * (100 - stonerShare)) / 100;
-            uint256 yearlyRewards = dailyRewards * 365;
-            
-            // APR = (yearly rewards / "cost basis") * 100
-            // For NFTs, we can use current floor price or swap fee as proxy
-            aprEstimate = (yearlyRewards * 100) / (swapFeeInWei * totalStaked);
-        }
-        
-        return (
-            totalRewardsDistributed, // Using this as proxy for total fees
-            totalRewardsDistributed,
-            0, // Would need additional tracking
-            dailyRatePerNFT,
-            aprEstimate
-        );
-    }
+
+
+
+
+
 
     function getTokenDetails(uint256 tokenId) external view returns (
         bool isInPool,
@@ -1525,6 +1356,113 @@ contract SwapPoolNative is
         isStaked = receiptTokenId != 0 && stakeInfos[receiptTokenId].active;
         currentOwner = IERC721(nftCollection).ownerOf(tokenId);
         stakedTimestamp = isStaked ? stakeInfos[receiptTokenId].stakedAt : 0;
+    }
+
+
+
+
+
+    function isStakeActive(uint256 receiptTokenId) public view returns (bool) {
+        return stakeInfos[receiptTokenId].active;
+    }
+
+    function getReceiptForToken(uint256 tokenId) external view returns (uint256) {
+        return originalToReceiptToken[tokenId];
+    }
+
+    function getTokenForReceipt(uint256 receiptTokenId) external view returns (uint256) {
+        return receiptToOriginalToken[receiptTokenId];
+    }
+
+    function getPoolTokens() external view returns (uint256[] memory) {
+        return poolTokens;
+    }
+
+    function getAvailableTokenCount() external view returns (uint256) {
+        return poolTokens.length;
+    }
+
+    function isTokenInPool(uint256 tokenId) external view returns (bool) {
+        return tokenInPool[tokenId] && IERC721(nftCollection).ownerOf(tokenId) == address(this);
+    }
+
+    function calculateBatchSwapFee(uint256 swapCount) external view returns (
+        uint256 totalFee,
+        uint256 feePerSwap
+    ) {
+        require(swapCount > 0, "Swap count must be greater than 0");
+        require(swapCount <= maxBatchSize, "Exceeds maximum batch size");
+        
+        feePerSwap = swapFeeInWei;
+        totalFee = swapFeeInWei * swapCount;
+    }
+
+    function getStakingInterfaceData(address user) external view returns (
+        uint256[] memory stakableTokens,
+        uint256 currentRewardRate,
+        uint256 projectedDailyEarnings,
+        uint256 estimatedGasStake,
+        bool stakingActive,
+        uint256 totalStakingSlots,
+        uint256 usedStakingSlots
+    ) {
+        // Calculate current reward rate per staked NFT per day
+        currentRewardRate = totalStaked > 0 ? 
+            (rewardPerTokenStored * 86400) / 1e18 / totalStaked : 0;
+            
+        uint256 userActiveStakes = getUserActiveStakeCount(user);
+        projectedDailyEarnings = userActiveStakes * currentRewardRate;
+        
+        estimatedGasStake = 180000;
+        stakingActive = !paused() && initialized;
+        
+        // For UI purposes - show reasonable limits
+        totalStakingSlots = 1000; // Theoretical max for gas efficiency
+        usedStakingSlots = totalStaked;
+        
+        stakableTokens = new uint256[](0); // Simplified - would need proper user token enumeration
+    }
+
+    function getTransactionPreviews(address user) external view returns (
+        uint256 unstakeAllRewards,
+        uint256 unstakeAllGas,
+        uint256 claimOnlyRewards,
+        uint256 claimOnlyGas,
+        uint256 swapGas,
+        uint256 stakeGas
+    ) {
+        unstakeAllRewards = earned(user);
+        unstakeAllGas = 21000 + (getUserActiveStakeCount(user) * 150000);
+        claimOnlyRewards = earned(user);
+        claimOnlyGas = 80000;
+        swapGas = 200000;
+        stakeGas = 180000;
+    }
+
+    function getMultipleTokenStatuses(uint256[] calldata tokenIds) external view returns (
+        bool[] memory inPool,
+        bool[] memory isStaked,
+        address[] memory owners,
+        uint256[] memory receiptIds
+    ) {
+        uint256 length = tokenIds.length;
+        inPool = new bool[](length);
+        isStaked = new bool[](length);
+        owners = new address[](length);
+        receiptIds = new uint256[](length);
+        
+        for (uint256 i = 0; i < length; i++) {
+            uint256 tokenId = tokenIds[i];
+            inPool[i] = tokenInPool[tokenId];
+            receiptIds[i] = originalToReceiptToken[tokenId];
+            isStaked[i] = receiptIds[i] != 0 && stakeInfos[receiptIds[i]].active;
+            
+            try IERC721(nftCollection).ownerOf(tokenId) returns (address owner) {
+                owners[i] = owner;
+            } catch {
+                owners[i] = address(0);
+            }
+        }
     }
 
     function getSwappableTokensPaginated(uint256 offset, uint256 limit) external view returns (
@@ -1552,50 +1490,6 @@ contract SwapPoolNative is
         }
         
         hasMore = end < available;
-    }
-
-    function getSwapSuggestions(uint256 userTokenId, uint256 maxSuggestions) external view returns (
-        uint256[] memory suggestedTokens,
-        string[] memory reasons
-    ) {
-        if (!tokenInPool[userTokenId] && IERC721(nftCollection).ownerOf(userTokenId) != msg.sender) {
-            return (new uint256[](0), new string[](0));
-        }
-        
-        uint256 available = poolTokens.length;
-        uint256 suggestions = maxSuggestions > available ? available : maxSuggestions;
-        
-        suggestedTokens = new uint256[](suggestions);
-        reasons = new string[](suggestions);
-        
-        for (uint256 i = 0; i < suggestions && i < available; i++) {
-            suggestedTokens[i] = poolTokens[i];
-            reasons[i] = "Available for swap";
-        }
-    }
-
-    function isStakeActive(uint256 receiptTokenId) public view returns (bool) {
-        return stakeInfos[receiptTokenId].active;
-    }
-
-    function getReceiptForToken(uint256 tokenId) external view returns (uint256) {
-        return originalToReceiptToken[tokenId];
-    }
-
-    function getTokenForReceipt(uint256 receiptTokenId) external view returns (uint256) {
-        return receiptToOriginalToken[receiptTokenId];
-    }
-
-    function getPoolTokens() external view returns (uint256[] memory) {
-        return poolTokens;
-    }
-
-    function getAvailableTokenCount() external view returns (uint256) {
-        return poolTokens.length;
-    }
-
-    function isTokenInPool(uint256 tokenId) external view returns (bool) {
-        return tokenInPool[tokenId] && IERC721(nftCollection).ownerOf(tokenId) == address(this);
     }
 
     // 🔄 PARTIAL UNSTAKING VIEW FUNCTIONS
@@ -1682,6 +1576,11 @@ contract SwapPoolNative is
         }
     }
 
+    function canUnstakeAll(address user) external view returns (bool canUnstake, uint256 activeStakes) {
+        activeStakes = getUserActiveStakeCount(user);
+        canUnstake = activeStakes > 0 && activeStakes <= 20;
+    }
+
     function previewBatchSwap(uint256[] calldata tokenIdsIn, uint256[] calldata tokenIdsOut) 
         external view returns (
         bool canSwap,
@@ -1748,12 +1647,39 @@ contract SwapPoolNative is
         }
     }
 
-    function canUnstakeAll(address user) external view returns (bool canUnstake, uint256 activeStakes) {
-        activeStakes = getUserActiveStakeCount(user);
-        canUnstake = activeStakes > 0 && activeStakes <= 20;
+    function getPoolRewardStats() external view returns (
+        uint256 totalFeesCollected,    // Total swap fees collected
+        uint256 rewardsDistributed,     // Total rewards paid to stakers  
+        uint256 averageDailyVolume,     // Average daily swap volume (would need tracking)
+        uint256 currentRewardRate,      // Current reward rate per NFT
+        uint256 estimatedAPR            // Estimated Annual Percentage Rate based on recent activity
+    ) {
+        // Calculate current reward rate per NFT per day
+        uint256 dailyRatePerNFT = totalStaked > 0 ? 
+            (rewardPerTokenStored * 86400) / 1e18 / totalStaked : 0;
+            
+        // Very rough APR estimation based on swap fee and current staking ratio
+        // This assumes consistent swap volume - in reality would need historical data
+        uint256 aprEstimate = 0;
+        if (totalStaked > 0 && swapFeeInWei > 0) {
+            // Assume 1 swap per day per 10 staked NFTs as baseline
+            uint256 assumedDailySwaps = totalStaked / 10 + 1;
+            uint256 dailyRewards = (assumedDailySwaps * swapFeeInWei * (100 - stonerShare)) / 100;
+            uint256 yearlyRewards = dailyRewards * 365;
+            
+            // APR = (yearly rewards / "cost basis") * 100
+            // For NFTs, we can use current floor price or swap fee as proxy
+            aprEstimate = (yearlyRewards * 100) / (swapFeeInWei * totalStaked);
+        }
+        
+        return (
+            totalRewardsDistributed, // Using this as proxy for total fees
+            totalRewardsDistributed,
+            0, // Would need additional tracking
+            dailyRatePerNFT,
+            aprEstimate
+        );
     }
-
-    // 🎯 ENHANCED UI/UX FUNCTIONS FOR BETTER FRONTEND INTEGRATION
 
     function getPoolAnalytics() external view returns (
         uint256 totalLiquidity,
@@ -1780,302 +1706,33 @@ contract SwapPoolNative is
         monthlyVolume = 0; // Would need swap tracking
     }
 
-    function getUserDashboard(address user) external view returns (
-        uint256 stakedCount,
-        uint256 userPendingRewards,
-        uint256 totalEarned,
-        uint256 averageStakingDays,
-        uint256[] memory userTokens,
-        uint256[] memory stakingTimestamps,
-        bool userCanUnstakeAll,
-        uint256 estimatedUnstakeAllGas
-    ) {
-        stakedCount = getUserActiveStakeCount(user);
-        userPendingRewards = earned(user);
-        
-        // Get user's active stakes details
-        (, , uint256[] memory originalIds, uint256[] memory timestamps) = 
-            getUserActiveStakeDetails(user);
-        
-        userTokens = originalIds;
-        stakingTimestamps = timestamps;
-        
-        // Calculate average staking time
-        if (timestamps.length > 0) {
-            uint256 totalTime = 0;
-            for (uint256 i = 0; i < timestamps.length; i++) {
-                totalTime += block.timestamp - timestamps[i];
-            }
-            averageStakingDays = (totalTime / timestamps.length) / 86400;
-        }
-        
-        // Check unstake all capability
-        userCanUnstakeAll = stakedCount > 0 && stakedCount <= 20;
-        estimatedUnstakeAllGas = 21000 + (stakedCount * 150000);
-        totalEarned = 0; // Would need additional tracking
-    }
+    // 🎯 ENHANCED UI/UX FUNCTIONS FOR BETTER FRONTEND INTEGRATION
 
-    function getPoolStatus() external view returns (
-        bool isActive,
-        bool hasLiquidity,
-        bool acceptingStakes,
-        string memory statusMessage,
-        uint256 healthScore
-    ) {
-        isActive = !paused();
-        hasLiquidity = poolTokens.length >= minPoolSize;
-        acceptingStakes = !paused() && initialized;
-        
-        if (!isActive) {
-            statusMessage = "Pool is paused";
-            healthScore = 0;
-        } else if (!hasLiquidity) {
-            statusMessage = "Low liquidity warning";
-            healthScore = 25;
-        } else if (poolTokens.length >= 50) {
-            statusMessage = "Excellent liquidity";
-            healthScore = 100;
-        } else if (poolTokens.length >= 20) {
-            statusMessage = "Good liquidity";
-            healthScore = 75;
-        } else {
-            statusMessage = "Moderate liquidity";
-            healthScore = 50;
-        }
-    }
 
-    function getSwapInterfaceData(address /* user */) external view returns (
-        uint256[] memory userOwnedTokens,
-        uint256[] memory swappableTokens,
-        uint256 swapFee,
-        bool poolActive
-    ) {
-        // Note: In production, you'd implement a more efficient way to get user tokens
-        // This is simplified for demonstration
-        
-        swappableTokens = poolTokens;
-        swapFee = swapFeeInWei;
-        poolActive = !paused() && poolTokens.length >= minPoolSize;
-        
-        userOwnedTokens = new uint256[](0); // Simplified - would need proper enumeration
-    }
 
-    function calculateBatchSwapFee(uint256 swapCount) external view returns (
-        uint256 totalFee,
-        uint256 feePerSwap
-    ) {
-        require(swapCount > 0, "Swap count must be greater than 0");
-        require(swapCount <= maxBatchSize, "Exceeds maximum batch size");
-        
-        feePerSwap = swapFeeInWei;
-        totalFee = swapFeeInWei * swapCount;
-    }
 
-    function getStakingInterfaceData(address user) external view returns (
-        uint256[] memory stakableTokens,
-        uint256 currentRewardRate,
-        uint256 projectedDailyEarnings,
-        uint256 estimatedGasStake,
-        bool stakingActive,
-        uint256 totalStakingSlots,
-        uint256 usedStakingSlots
-    ) {
-        // Calculate current reward rate per staked NFT per day
-        currentRewardRate = totalStaked > 0 ? 
-            (rewardPerTokenStored * 86400) / 1e18 / totalStaked : 0;
-            
-        uint256 userActiveStakes = getUserActiveStakeCount(user);
-        projectedDailyEarnings = userActiveStakes * currentRewardRate;
-        
-        estimatedGasStake = 180000;
-        stakingActive = !paused() && initialized;
-        
-        // For UI purposes - show reasonable limits
-        totalStakingSlots = 1000; // Theoretical max for gas efficiency
-        usedStakingSlots = totalStaked;
-        
-        stakableTokens = new uint256[](0); // Simplified - would need proper user token enumeration
-    }
 
-    function getTransactionPreviews(address user) external view returns (
-        uint256 unstakeAllRewards,
-        uint256 unstakeAllGas,
-        uint256 claimOnlyRewards,
-        uint256 claimOnlyGas,
-        uint256 swapGas,
-        uint256 stakeGas
-    ) {
-        unstakeAllRewards = earned(user);
-        unstakeAllGas = 21000 + (getUserActiveStakeCount(user) * 150000);
-        claimOnlyRewards = earned(user);
-        claimOnlyGas = 80000;
-        swapGas = 200000;
-        stakeGas = 180000;
-    }
 
-    function getMultipleTokenStatuses(uint256[] calldata tokenIds) external view returns (
-        bool[] memory inPool,
-        bool[] memory isStaked,
-        address[] memory owners,
-        uint256[] memory receiptIds
-    ) {
-        uint256 length = tokenIds.length;
-        inPool = new bool[](length);
-        isStaked = new bool[](length);
-        owners = new address[](length);
-        receiptIds = new uint256[](length);
-        
-        for (uint256 i = 0; i < length; i++) {
-            uint256 tokenId = tokenIds[i];
-            inPool[i] = tokenInPool[tokenId];
-            receiptIds[i] = originalToReceiptToken[tokenId];
-            isStaked[i] = receiptIds[i] != 0 && stakeInfos[receiptIds[i]].active;
-            
-            try IERC721(nftCollection).ownerOf(tokenId) returns (address owner) {
-                owners[i] = owner;
-            } catch {
-                owners[i] = address(0);
-            }
-        }
-    }
 
-    function getRecommendedActions(address user) external view returns (
-        string[] memory actions,
-        string[] memory reasons,
-        uint256[] memory estimatedGas,
-        uint256[] memory potentialRewards
-    ) {
-        uint256 userStaked = getUserActiveStakeCount(user);
-        uint256 userRewards = earned(user);
-        uint256 userTokenBalance = IERC721(nftCollection).balanceOf(user);
-        
-        // Dynamic recommendations based on user state
-        uint256 recommendationCount = 0;
-        if (userRewards > 0.001 ether) recommendationCount++; // Has rewards to claim
-        if (userTokenBalance > 0 && poolTokens.length >= minPoolSize) recommendationCount++; // Can stake
-        if (userStaked > 0) recommendationCount++; // Can unstake
-        
-        actions = new string[](recommendationCount);
-        reasons = new string[](recommendationCount);
-        estimatedGas = new uint256[](recommendationCount);
-        potentialRewards = new uint256[](recommendationCount);
-        
-        uint256 index = 0;
-        
-        if (userRewards > 0.001 ether) {
-            actions[index] = "Claim Rewards";
-            reasons[index] = "You have claimable rewards";
-            estimatedGas[index] = 80000;
-            potentialRewards[index] = userRewards;
-            index++;
-        }
-        
-        if (userTokenBalance > 0 && poolTokens.length >= minPoolSize) {
-            actions[index] = "Stake Tokens";
-            reasons[index] = "Start earning rewards on your tokens";
-            estimatedGas[index] = 180000 * userTokenBalance;
-            potentialRewards[index] = 0; // Future earnings
-            index++;
-        }
-        
-        if (userStaked > 0) {
-            actions[index] = "Review Stakes";
-            reasons[index] = "Check your staking positions";
-            estimatedGas[index] = 0; // View only
-            potentialRewards[index] = 0;
-            index++;
-        }
-    }
 
-    function getBatchOperationResult(address /* user */) external pure returns (BatchOperationResult memory result) {
-        // This would be stored per user in a mapping during actual batch operations
-        // For now, return a default empty result structure
-        result.successfulTokenIds = new uint256[](0);
-        result.failedTokenIds = new uint256[](0);
-        result.completed = true;
-    }
 
-    function _optimizedArrayRemoval(uint256[] storage array, uint256 indexToRemove) internal {
-        require(indexToRemove < array.length, "Index out of bounds");
-        
-        // Move last element to the index being removed and pop the last element
-        if (indexToRemove != array.length - 1) {
-            array[indexToRemove] = array[array.length - 1];
-        }
-        array.pop();
-    }
 
-    function _batchOptimizedSearch(uint256[] memory array, uint256 target) 
-        internal 
-        pure 
-        returns (bool found, uint256 index) 
-    {
-        // Binary search for sorted arrays, linear for unsorted
-        for (uint256 i = 0; i < array.length; i++) {
-            if (array[i] == target) {
-                return (true, i);
-            }
-        }
-        return (false, 0);
-    }
 
-    function _batchValidateTokens(uint256[] memory tokenIds) 
-        internal 
-        view 
-        returns (bool valid, uint256 firstInvalidIndex) 
-    {
-        for (uint256 i = 0; i < tokenIds.length; i++) {
-            if (tokenIds[i] == 0 || !isStakeActive(tokenIds[i])) {
-                return (false, i);
-            }
-        }
-        return (true, 0);
-    }
+
+
+
+
+
+
+
+
+
+
+
 
     function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}
 
-    function getContractHealthCheck() external view onlyOwner returns (
-        bool poolHealthy,
-        bool rewardSystemHealthy,
-        bool storageConsistent,
-        uint256 contractBalance,
-        uint256 totalNFTsHeld,
-        string memory statusMessage
-    ) {
-        // Check pool health
-        poolHealthy = poolTokens.length >= minPoolSize && !paused();
-        
-        // Check reward system health
-        rewardSystemHealthy = totalStaked == 0 || rewardPerTokenStored > 0;
-        
-        // Check storage consistency
-        uint256 actualNFTBalance = IERC721(nftCollection).balanceOf(address(this));
-        storageConsistent = actualNFTBalance >= poolTokens.length;
-        
-        // Get contract metrics
-        contractBalance = address(this).balance;
-        totalNFTsHeld = actualNFTBalance;
-        
-        // Generate status message
-        if (!poolHealthy) {
-            statusMessage = "Pool unhealthy: insufficient liquidity or paused";
-        } else if (!rewardSystemHealthy) {
-            statusMessage = "Reward system unhealthy: staking without rewards";
-        } else if (!storageConsistent) {
-            statusMessage = "Storage inconsistent: NFT count mismatch";
-        } else {
-            statusMessage = "All systems healthy";
-        }
-        
-        return (
-            poolHealthy,
-            rewardSystemHealthy,
-            storageConsistent,
-            contractBalance,
-            totalNFTsHeld,
-            statusMessage
-        );
-    }
+
 
     // Only allow ETH for swap fees - reject other ETH deposits
     receive() external payable {
