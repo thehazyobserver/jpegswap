@@ -876,6 +876,11 @@ contract SwapPoolNative is
         // Execute the swap - NFT transfers
         IERC721(nftCollection).safeTransferFrom(msg.sender, address(this), tokenIdIn);
         IERC721(nftCollection).safeTransferFrom(address(this), msg.sender, tokenIdOut);
+        
+        // 🔒 SECURITY: Revoke any remaining approvals to prevent double-spend
+        if (IERC721(nftCollection).getApproved(tokenIdIn) == address(this)) {
+            IERC721(nftCollection).approve(address(0), tokenIdIn);
+        }
 
         // External calls LAST (CEI pattern)
         if (stonerAmount > 0) {
@@ -957,6 +962,11 @@ contract SwapPoolNative is
             IERC721(nftCollection).safeTransferFrom(msg.sender, address(this), tokenIdsIn[i]);
             IERC721(nftCollection).safeTransferFrom(address(this), msg.sender, tokenIdsOut[i]);
             
+            // 🔒 SECURITY: Revoke any remaining approvals to prevent double-spend
+            if (IERC721(nftCollection).getApproved(tokenIdsIn[i]) == address(this)) {
+                IERC721(nftCollection).approve(address(0), tokenIdsIn[i]);
+            }
+            
             // Emit event for each swap in the batch
             emit SwapExecuted(msg.sender, tokenIdsIn[i], tokenIdsOut[i], swapFeeInWei);
         }
@@ -980,6 +990,11 @@ contract SwapPoolNative is
     {
         // Transfer NFT to pool
         IERC721(nftCollection).safeTransferFrom(msg.sender, address(this), tokenId);
+        
+        // 🔒 SECURITY: Revoke any remaining approvals to prevent double-spend
+        if (IERC721(nftCollection).getApproved(tokenId) == address(this)) {
+            IERC721(nftCollection).approve(address(0), tokenId);
+        }
         
         // Add to pool tracking
         _addTokenToPool(tokenId);
@@ -1266,7 +1281,8 @@ contract SwapPoolNative is
     }
 
     function setStonerShare(uint256 newShare) external onlyOwner {
-        if (newShare > 100) revert InvalidStonerShare();
+        // 🔒 ENHANCED: Prevent 100% fees going to stoners (keep some for stakers)
+        if (newShare >= 100) revert InvalidStonerShare();
         stonerShare = newShare;
         emit StonerShareUpdated(newShare);
     }
@@ -1730,7 +1746,46 @@ contract SwapPoolNative is
 
 
 
-    function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}
+    // 🔒 UPGRADE SECURITY: Add timelock protection for upgrades
+    uint256 public upgradeTimelock = 48 hours;
+    uint256 public pendingUpgradeTime;
+    address public pendingImplementation;
+    
+    event UpgradeProposed(address indexed newImplementation, uint256 executeTime);
+    event UpgradeExecuted(address indexed newImplementation);
+    
+    function proposeUpgrade(address newImplementation) external onlyOwner {
+        require(newImplementation != address(0), "Zero address");
+        require(AddressUpgradeable.isContract(newImplementation), "Not contract");
+        
+        pendingImplementation = newImplementation;
+        pendingUpgradeTime = block.timestamp + upgradeTimelock;
+        
+        emit UpgradeProposed(newImplementation, pendingUpgradeTime);
+    }
+    
+    function executeUpgrade() external onlyOwner {
+        require(pendingImplementation != address(0), "No pending upgrade");
+        require(block.timestamp >= pendingUpgradeTime, "Timelock not expired");
+        
+        address impl = pendingImplementation;
+        pendingImplementation = address(0);
+        pendingUpgradeTime = 0;
+        
+        _upgradeToAndCallUUPS(impl, new bytes(0), false);
+        emit UpgradeExecuted(impl);
+    }
+    
+    function cancelUpgrade() external onlyOwner {
+        pendingImplementation = address(0);
+        pendingUpgradeTime = 0;
+    }
+    
+    function _authorizeUpgrade(address newImplementation) internal override onlyOwner {
+        // This now requires going through the timelock process
+        require(newImplementation == pendingImplementation, "Must use timelock");
+        require(block.timestamp >= pendingUpgradeTime, "Timelock not ready");
+    }
 
 
 
