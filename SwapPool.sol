@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: MIT
+pragma solidity ^0.8.19;
 
 // File: @openzeppelin/contracts-upgradeable@4.8.3/utils/AddressUpgradeable.sol
 
@@ -62,10 +63,10 @@ library AddressUpgradeable {
      * https://solidity.readthedocs.io/en/v0.5.11/security-considerations.html#use-the-checks-effects-interactions-pattern[checks-effects-interactions pattern].
      */
     function sendValue(address payable recipient, uint256 amount) internal {
-        require(address(this).balance >= amount, "Address: insufficient balance");
+        require(address(this).balance >= amount, "Low balance");
 
         (bool success, ) = recipient.call{value: amount}("");
-        require(success, "Address: unable to send value, recipient may have reverted");
+        require(success, "Send failed");
     }
 
     /**
@@ -135,7 +136,7 @@ library AddressUpgradeable {
         uint256 value,
         string memory errorMessage
     ) internal returns (bytes memory) {
-        require(address(this).balance >= value, "Address: insufficient balance for call");
+        require(address(this).balance >= value, "Low balance");
         (bool success, bytes memory returndata) = target.call{value: value}(data);
         return verifyCallResultFromTarget(target, success, returndata, errorMessage);
     }
@@ -181,7 +182,7 @@ library AddressUpgradeable {
             if (returndata.length == 0) {
                 // only check isContract if the call was successful and the return data is empty
                 // otherwise we already know that it was a contract
-                require(isContract(target), "Address: call to non-contract");
+                require(isContract(target), "Not contract");
             }
             return returndata;
         } else {
@@ -341,7 +342,7 @@ abstract contract Initializable {
      * Emits an {Initialized} event.
      */
     modifier reinitializer(uint8 version) {
-        require(!_initializing && _initialized < version, "Initializable: contract is already initialized");
+        require(!_initializing && _initialized < version, "Already initialized");
         _initialized = version;
         _initializing = true;
         _;
@@ -354,7 +355,7 @@ abstract contract Initializable {
      * {initializer} and {reinitializer} modifiers, directly or indirectly.
      */
     modifier onlyInitializing() {
-        require(_initializing, "Initializable: contract is not initializing");
+        require(_initializing, "Not initializing");
         _;
     }
 
@@ -367,7 +368,7 @@ abstract contract Initializable {
      * Emits an {Initialized} event the first time it is successfully executed.
      */
     function _disableInitializers() internal virtual {
-        require(!_initializing, "Initializable: contract is initializing");
+        require(!_initializing, "Is initializing");
         if (_initialized < type(uint8).max) {
             _initialized = type(uint8).max;
             emit Initialized(type(uint8).max);
@@ -485,7 +486,7 @@ abstract contract OwnableUpgradeable is Initializable, ContextUpgradeable {
      * @dev Throws if the sender is not the owner.
      */
     function _checkOwner() internal view virtual {
-        require(owner() == _msgSender(), "Ownable: caller is not the owner");
+        require(owner() == _msgSender(), "Not owner");
     }
 
     /**
@@ -504,7 +505,7 @@ abstract contract OwnableUpgradeable is Initializable, ContextUpgradeable {
      * Can only be called by the current owner.
      */
     function transferOwnership(address newOwner) public virtual onlyOwner {
-        require(newOwner != address(0), "Ownable: new owner is the zero address");
+        require(newOwner != address(0), "Zero address");
         _transferOwnership(newOwner);
     }
 
@@ -603,14 +604,14 @@ abstract contract PausableUpgradeable is Initializable, ContextUpgradeable {
      * @dev Throws if the contract is paused.
      */
     function _requireNotPaused() internal view virtual {
-        require(!paused(), "Pausable: paused");
+        require(!paused(), "Paused");
     }
 
     /**
      * @dev Throws if the contract is not paused.
      */
     function _requirePaused() internal view virtual {
-        require(paused(), "Pausable: not paused");
+        require(paused(), "Not paused");
     }
 
     /**
@@ -709,7 +710,7 @@ abstract contract ReentrancyGuardUpgradeable is Initializable {
 
     function _nonReentrantBefore() private {
         // On the first call to nonReentrant, _status will be _NOT_ENTERED
-        require(_status != _ENTERED, "ReentrancyGuard: reentrant call");
+        require(_status != _ENTERED, "Reentrant");
 
         // Any calls to nonReentrant after this point will fail
         _status = _ENTERED;
@@ -939,7 +940,7 @@ abstract contract ERC1967UpgradeUpgradeable is Initializable, IERC1967Upgradeabl
      * @dev Stores a new address in the EIP1967 implementation slot.
      */
     function _setImplementation(address newImplementation) private {
-        require(AddressUpgradeable.isContract(newImplementation), "ERC1967: new implementation is not a contract");
+        require(AddressUpgradeable.isContract(newImplementation), "Not contract");
         StorageSlotUpgradeable.getAddressSlot(_IMPLEMENTATION_SLOT).value = newImplementation;
     }
 
@@ -986,7 +987,7 @@ abstract contract ERC1967UpgradeUpgradeable is Initializable, IERC1967Upgradeabl
             _setImplementation(newImplementation);
         } else {
             try IERC1822ProxiableUpgradeable(newImplementation).proxiableUUID() returns (bytes32 slot) {
-                require(slot == _IMPLEMENTATION_SLOT, "ERC1967Upgrade: unsupported proxiableUUID");
+                require(slot == _IMPLEMENTATION_SLOT, "Bad UUID");
             } catch {
                 revert("ERC1967Upgrade: new implementation is not UUPS");
             }
@@ -1012,7 +1013,7 @@ abstract contract ERC1967UpgradeUpgradeable is Initializable, IERC1967Upgradeabl
      * @dev Stores a new address in the EIP1967 admin slot.
      */
     function _setAdmin(address newAdmin) private {
-        require(newAdmin != address(0), "ERC1967: new admin is the zero address");
+        require(newAdmin != address(0), "Zero address");
         StorageSlotUpgradeable.getAddressSlot(_ADMIN_SLOT).value = newAdmin;
     }
 
@@ -1043,7 +1044,7 @@ abstract contract ERC1967UpgradeUpgradeable is Initializable, IERC1967Upgradeabl
      * @dev Stores a new beacon in the EIP1967 beacon slot.
      */
     function _setBeacon(address newBeacon) private {
-        require(AddressUpgradeable.isContract(newBeacon), "ERC1967: new beacon is not a contract");
+        require(AddressUpgradeable.isContract(newBeacon), "Not contract");
         require(
             AddressUpgradeable.isContract(IBeaconUpgradeable(newBeacon).implementation()),
             "ERC1967: beacon implementation is not a contract"
@@ -1076,7 +1077,7 @@ abstract contract ERC1967UpgradeUpgradeable is Initializable, IERC1967Upgradeabl
      * _Available since v3.4._
      */
     function _functionDelegateCall(address target, bytes memory data) private returns (bytes memory) {
-        require(AddressUpgradeable.isContract(target), "Address: delegate call to non-contract");
+        require(AddressUpgradeable.isContract(target), "Not contract");
 
         // solhint-disable-next-line avoid-low-level-calls
         (bool success, bytes memory returndata) = target.delegatecall(data);
@@ -1130,8 +1131,8 @@ abstract contract UUPSUpgradeable is Initializable, IERC1822ProxiableUpgradeable
      * fail.
      */
     modifier onlyProxy() {
-        require(address(this) != __self, "Function must be called through delegatecall");
-        require(_getImplementation() == __self, "Function must be called through active proxy");
+        require(address(this) != __self, "Use delegatecall");
+        require(_getImplementation() == __self, "Use active proxy");
         _;
     }
 
@@ -1140,7 +1141,7 @@ abstract contract UUPSUpgradeable is Initializable, IERC1822ProxiableUpgradeable
      * callable on the implementing contract but not through proxies.
      */
     modifier notDelegated() {
-        require(address(this) == __self, "UUPSUpgradeable: must not be called through delegatecall");
+        require(address(this) == __self, "No delegatecall");
         _;
     }
 
@@ -1406,11 +1407,11 @@ contract SwapPoolNative is
     bool public initialized;
 
     // 🎯 LIQUIDITY MANAGEMENT
-    uint256 public minPoolSize = 5; // Minimum tokens required for swaps (configurable)
+    uint256 public minPoolSize = 5;
     
-    // 🎯 CONFIGURABLE BATCH LIMITS
-    uint256 public maxBatchSize = 10;           // Configurable batch operation limit
-    uint256 public maxUnstakeAllLimit = 20;     // Configurable unstake all limit
+    // 🎯 BATCH LIMITS
+    uint256 public maxBatchSize = 10;
+    uint256 public maxUnstakeAllLimit = 20;
 
     // 🎯 POOL TOKEN TRACKING - Track all available tokens
     uint256[] public poolTokens;                    // Array of all tokens in pool
@@ -1479,8 +1480,6 @@ contract SwapPoolNative is
     struct BatchOperationResult {
         uint256[] successfulTokenIds;
         uint256[] failedTokenIds;
-        string[] errorReasons;
-        uint256 totalGasUsed;
         bool completed;
     }
 
@@ -1507,7 +1506,7 @@ contract SwapPoolNative is
 
     // � LIQUIDITY PROTECTION MODIFIER
     modifier minimumLiquidity() {
-        require(poolTokens.length >= minPoolSize, "Insufficient liquidity");
+        require(poolTokens.length >= minPoolSize, "Low liquidity");
         _;
     }
 
@@ -1536,8 +1535,8 @@ contract SwapPoolNative is
         uint256 _stonerShare
     ) public initializer {
         require(_nftCollection != address(0) && _stonerPool != address(0), "Zero address");
-        require(_receiptContract != address(0), "Zero receipt address");
-        require(_stonerShare <= 100, "Invalid stoner share");
+        require(_receiptContract != address(0), "Zero receipt");
+        require(_stonerShare <= 100, "Bad share");
 
         __Ownable_init();
         __Pausable_init();
@@ -1628,8 +1627,8 @@ contract SwapPoolNative is
     {
         // 🛡️ BATCH VALIDATION
         require(tokenIdsIn.length > 0 && tokenIdsOut.length > 0, "Empty arrays");
-        require(tokenIdsIn.length == tokenIdsOut.length, "Array length mismatch");
-        require(tokenIdsIn.length <= maxBatchSize, "Exceeds batch limit");
+        require(tokenIdsIn.length == tokenIdsOut.length, "Length mismatch");
+        require(tokenIdsIn.length <= maxBatchSize, "Batch limit");
         
         // 🔍 DUPLICATE DETECTION
         _checkForDuplicates(tokenIdsIn);
@@ -1753,9 +1752,9 @@ contract SwapPoolNative is
         whenNotPaused 
         updateReward(msg.sender)
     {
-        uint256 batchLength = receiptTokenIds.length; // Gas optimization: cache array length
+        uint256 batchLength = receiptTokenIds.length;
         require(batchLength > 0, "Empty array");
-        require(batchLength <= maxBatchSize, "Batch size exceeds limit"); // Configurable gas limit protection
+        require(batchLength <= maxBatchSize, "Batch limit");
         
         // Initialize batch tracking
         _inBatchOperation = true;
@@ -1784,8 +1783,8 @@ contract SwapPoolNative is
         updateReward(msg.sender)
     {
         uint256[] memory userReceiptTokens = userStakes[msg.sender];
-        uint256 userStakesLength = userReceiptTokens.length; // Gas optimization: cache array length
-        require(userStakesLength > 0, "No stakes found");
+        uint256 userStakesLength = userReceiptTokens.length;
+        require(userStakesLength > 0, "No stakes");
         
         // Create array of active receipt tokens
         uint256[] memory activeReceipts = new uint256[](userStakesLength);
@@ -1798,8 +1797,8 @@ contract SwapPoolNative is
             }
         }
         
-        require(activeCount > 0, "No active stakes");
-        require(activeCount <= maxUnstakeAllLimit, "Too many stakes - use batch function"); // Gas protection
+        require(activeCount > 0, "No active");
+        require(activeCount <= maxUnstakeAllLimit, "Too many stakes");
         
         // Initialize batch tracking
         _inBatchOperation = true;
@@ -1962,7 +1961,7 @@ contract SwapPoolNative is
     function _checkForDuplicates(uint256[] calldata tokenIds) internal pure {
         for (uint256 i = 0; i < tokenIds.length; i++) {
             for (uint256 j = i + 1; j < tokenIds.length; j++) {
-                require(tokenIds[i] != tokenIds[j], "Duplicate token ID found");
+                require(tokenIds[i] != tokenIds[j], "Duplicate token");
             }
         }
     }
@@ -1993,7 +1992,7 @@ contract SwapPoolNative is
      */
     function getUserActiveStakeCount(address user) public view returns (uint256 count) {
         uint256[] memory stakes = userStakes[user];
-        uint256 stakesLength = stakes.length; // Gas optimization: cache array length
+        uint256 stakesLength = stakes.length;
         for (uint256 i = 0; i < stakesLength; i++) {
             if (stakeInfos[stakes[i]].active) {
                 count++;
@@ -2006,7 +2005,7 @@ contract SwapPoolNative is
      */
     function _removeFromUserStakes(address user, uint256 receiptTokenId) internal {
         uint256[] storage stakes = userStakes[user];
-        uint256 stakesLength = stakes.length; // Gas optimization: cache array length
+        uint256 stakesLength = stakes.length;
         for (uint256 i = 0; i < stakesLength; i++) {
             if (stakes[i] == receiptTokenId) {
                 stakes[i] = stakes[stakesLength - 1];
@@ -2070,7 +2069,7 @@ contract SwapPoolNative is
     }
 
     function emergencyWithdrawBatch(uint256[] calldata tokenIds) external onlyOwner {
-        uint256 tokenIdsLength = tokenIds.length; // Gas optimization: cache array length
+        uint256 tokenIdsLength = tokenIds.length;
         for (uint256 i = 0; i < tokenIdsLength; i++) {
             IERC721(nftCollection).safeTransferFrom(address(this), owner(), tokenIds[i]);
         }
@@ -2159,7 +2158,7 @@ contract SwapPoolNative is
         uint256 totalSwapVolume
     ) {
         uint256[] memory userReceiptTokens = userStakes[user];
-        uint256 userReceiptLength = userReceiptTokens.length; // Gas optimization: cache array length
+        uint256 userReceiptLength = userReceiptTokens.length;
         uint256[] memory activeReceiptTokens = new uint256[](userReceiptLength);
         uint256 activeCount = 0;
         uint256 totalStakingTime = 0;
@@ -2824,8 +2823,6 @@ contract SwapPoolNative is
         // For now, return a default empty result structure
         result.successfulTokenIds = new uint256[](0);
         result.failedTokenIds = new uint256[](0);
-        result.errorReasons = new string[](0);
-        result.totalGasUsed = 0;
         result.completed = true;
     }
 
