@@ -2168,6 +2168,322 @@ contract StonerFeePool is
         averageDurationDays = averageDurationSeconds / 86400;
     }
 
+    // 🎯 FRONTEND OPTIMIZATION FUNCTIONS
+
+    /**
+     * @dev Get comprehensive pool dashboard data in one call
+     */
+    function getPoolDashboard(address user) external view returns (
+        // Pool statistics
+        uint256 totalStaked,
+        uint256 totalRewardsDistributed,
+        uint256 currentNativeRewards,
+        uint256 averageStakingDuration,
+        // User data
+        uint256 userStakedCount,
+        uint256 userPendingRewards,
+        uint256 userTotalEarned,
+        uint256 userAverageStakingTime,
+        // Pool health metrics
+        bool poolActive,
+        uint256 stakingAPR,
+        uint256 recentActivity,
+        string memory poolStatus
+    ) {
+        totalStaked = this.totalStaked();
+        totalRewardsDistributed = 0; // Would need tracking
+        currentNativeRewards = address(this).balance;
+        averageStakingDuration = 0; // Would need calculation
+        
+        userStakedCount = getStakedTokenCount(user);
+        userPendingRewards = _calculatePendingRewards(user);
+        userTotalEarned = 0; // Would need tracking
+        userAverageStakingTime = 0; // Would need calculation
+        
+        poolActive = !paused() && initialized;
+        stakingAPR = 0; // Would need calculation based on rewards
+        recentActivity = 0; // Would need tracking
+        poolStatus = poolActive ? "Active" : "Paused";
+    }
+
+    /**
+     * @dev Get user's complete staking portfolio
+     */
+    function getUserStakingPortfolio(address user) external view returns (
+        // Portfolio overview
+        uint256 totalStakedTokens,
+        uint256 totalRewards,
+        uint256 averageStakingPeriod,
+        uint256 portfolioValue,
+        // Detailed token data
+        uint256[] memory stakedTokenIds,
+        uint256[] memory stakingDurations,
+        uint256[] memory individualRewards,
+        uint256[] memory stakeTimestamps,
+        // Portfolio analytics
+        uint256 longestStake,
+        uint256 shortestStake,
+        bool hasLongTermStakes,
+        uint256 estimatedClaimGas
+    ) {
+        uint256[] memory userTokens = stakedTokens[user];
+        totalStakedTokens = userTokens.length;
+        
+        if (totalStakedTokens == 0) {
+            // Return empty data for users with no stakes
+            stakedTokenIds = new uint256[](0);
+            stakingDurations = new uint256[](0);
+            individualRewards = new uint256[](0);
+            stakeTimestamps = new uint256[](0);
+            return (0, 0, 0, 0, stakedTokenIds, stakingDurations, individualRewards, stakeTimestamps, 0, 0, false, 0);
+        }
+        
+        // Initialize arrays
+        stakedTokenIds = new uint256[](totalStakedTokens);
+        stakingDurations = new uint256[](totalStakedTokens);
+        individualRewards = new uint256[](totalStakedTokens);
+        stakeTimestamps = new uint256[](totalStakedTokens);
+        
+        uint256 totalStakingTime = 0;
+        longestStake = 0;
+        shortestStake = type(uint256).max;
+        
+        for (uint256 i = 0; i < totalStakedTokens; i++) {
+            uint256 tokenId = userTokens[i];
+            uint256 duration = 0;
+            
+            if (stakeInfos[tokenId].active) {
+                duration = block.timestamp - stakeInfos[tokenId].stakedAt;
+                totalStakingTime += duration;
+                
+                if (duration > longestStake) longestStake = duration;
+                if (duration < shortestStake) shortestStake = duration;
+                if (duration > 30 days) hasLongTermStakes = true;
+            }
+            
+            stakedTokenIds[i] = tokenId;
+            stakingDurations[i] = duration;
+            individualRewards[i] = 0; // Would need per-token calculation
+            stakeTimestamps[i] = stakeInfos[tokenId].stakedAt;
+        }
+        
+        averageStakingPeriod = totalStakedTokens > 0 ? totalStakingTime / totalStakedTokens : 0;
+        totalRewards = _calculatePendingRewards(user);
+        portfolioValue = totalStakedTokens; // Simplified - would use actual NFT values
+        
+        if (shortestStake == type(uint256).max) shortestStake = 0;
+        
+        estimatedClaimGas = 80000;
+    }
+
+    /**
+     * @dev Get staking transaction simulations
+     */
+    function simulateStakingTransaction(
+        string calldata txType, // "stake", "unstake", "claim"
+        address user,
+        uint256[] calldata tokenIds
+    ) external view returns (
+        bool canExecute,
+        uint256 estimatedGas,
+        uint256 expectedRewards,
+        string memory status,
+        uint256[] memory affectedTokens,
+        bool requiresApproval
+    ) {
+        affectedTokens = new uint256[](0);
+        requiresApproval = false;
+        
+        if (keccak256(bytes(txType)) == keccak256(bytes("stake"))) {
+            canExecute = tokenIds.length > 0 && !paused();
+            estimatedGas = tokenIds.length * 150000;
+            expectedRewards = 0;
+            status = canExecute ? "Ready to stake" : "Cannot stake";
+            affectedTokens = tokenIds;
+            requiresApproval = true; // NFT approval needed
+        } else if (keccak256(bytes(txType)) == keccak256(bytes("unstake"))) {
+            uint256 validCount = 0;
+            for (uint256 i = 0; i < tokenIds.length; i++) {
+                if (isStaked[tokenIds[i]] && stakerOf[tokenIds[i]] == user) {
+                    validCount++;
+                }
+            }
+            canExecute = validCount > 0 && !paused();
+            estimatedGas = validCount * 120000;
+            expectedRewards = _calculatePendingRewards(user);
+            status = canExecute ? "Ready to unstake" : "Cannot unstake";
+            affectedTokens = tokenIds;
+        } else if (keccak256(bytes(txType)) == keccak256(bytes("claim"))) {
+            expectedRewards = _calculatePendingRewards(user);
+            canExecute = expectedRewards > 0 && !paused();
+            estimatedGas = 80000;
+            status = canExecute ? "Ready to claim" : "No rewards";
+            affectedTokens = new uint256[](0);
+        } else {
+            status = "Unknown transaction type";
+        }
+    }
+
+    /**
+     * @dev Get pool analytics for insights dashboard
+     */
+    function getPoolAnalytics() external view returns (
+        // Activity metrics
+        uint256 totalUniqueStakers,
+        uint256 averageStakeSize,
+        uint256 totalValueLocked,
+        uint256 stakingParticipationRate,
+        // Time-based metrics
+        uint256 averageHoldingPeriod,
+        uint256 stakingTurnoverRate,
+        uint256 recentJoiners,      // Last 7 days
+        uint256 longTermHolders,    // Over 30 days
+        // Reward metrics
+        uint256 totalRewardsPaid,
+        uint256 currentRewardPool,
+        uint256 estimatedAPY,
+        bool rewardsAvailable
+    ) {
+        // Basic calculations
+        totalUniqueStakers = 0; // Would need tracking across all users
+        totalValueLocked = totalStaked;
+        averageStakeSize = totalStaked > 0 ? totalStaked / (totalUniqueStakers > 0 ? totalUniqueStakers : 1) : 0;
+        stakingParticipationRate = 0; // Would need total NFT supply data
+        
+        // Time-based metrics (simplified)
+        averageHoldingPeriod = 0; // Would need comprehensive tracking
+        stakingTurnoverRate = 0;  // Would need historical data
+        recentJoiners = 0;        // Would need timestamp tracking
+        longTermHolders = 0;      // Would need analysis
+        
+        // Reward metrics
+        totalRewardsPaid = 0;     // Would need tracking
+        currentRewardPool = address(this).balance;
+        estimatedAPY = 0;         // Would need calculation
+        rewardsAvailable = currentRewardPool > 0;
+    }
+
+    /**
+     * @dev Get real-time staking recommendations
+     */
+    function getStakingRecommendations(address user) external view returns (
+        string[] memory recommendations,
+        uint256[] memory priorityScores,  // 1-100
+        bool[] memory actionRequired,
+        uint256 maxRecommendations
+    ) {
+        maxRecommendations = 5;
+        recommendations = new string[](maxRecommendations);
+        priorityScores = new uint256[](maxRecommendations);
+        actionRequired = new bool[](maxRecommendations);
+        
+        uint256 recCount = 0;
+        uint256 userStakeCount = getStakedTokenCount(user);
+        uint256 pendingRewards = _calculatePendingRewards(user);
+        
+        if (pendingRewards > 0) {
+            recommendations[recCount] = "Claim pending rewards";
+            priorityScores[recCount] = 90;
+            actionRequired[recCount] = true;
+            recCount++;
+        }
+        
+        if (userStakeCount == 0) {
+            recommendations[recCount] = "Start staking to earn rewards";
+            priorityScores[recCount] = 80;
+            actionRequired[recCount] = false;
+            recCount++;
+        }
+        
+        if (userStakeCount > 0 && userStakeCount < 5) {
+            recommendations[recCount] = "Consider staking more NFTs";
+            priorityScores[recCount] = 60;
+            actionRequired[recCount] = false;
+            recCount++;
+        }
+        
+        if (currentRewardPool > 0) {
+            recommendations[recCount] = "Pool has active rewards";
+            priorityScores[recCount] = 70;
+            actionRequired[recCount] = false;
+            recCount++;
+        }
+        
+        recommendations[recCount] = "Monitor pool performance";
+        priorityScores[recCount] = 40;
+        actionRequired[recCount] = false;
+        recCount++;
+        
+        // Resize arrays to actual count
+        assembly {
+            mstore(recommendations, recCount)
+            mstore(priorityScores, recCount)
+            mstore(actionRequired, recCount)
+        }
+        maxRecommendations = recCount;
+    }
+
+    /**
+     * @dev Batch data fetcher to minimize RPC calls
+     */
+    function getBatchStakingData(address user, uint256[] calldata tokenIds) external view returns (
+        // Pool data
+        uint256[8] memory poolData,    // [totalStaked, rewardPool, etc.]
+        // User data
+        uint256[6] memory userData,    // [stakeCount, rewards, etc.]
+        // Token validation
+        bool[] memory canStake,
+        bool[] memory isCurrentlyStaked,
+        bool[] memory userOwnsToken,
+        // Gas estimates
+        uint256 stakeAllGas,
+        uint256 unstakeAllGas,
+        uint256 claimGas
+    ) {
+        // Pool data
+        poolData[0] = totalStaked;
+        poolData[1] = address(this).balance;
+        poolData[2] = paused() ? 0 : 1;
+        poolData[3] = initialized ? 1 : 0;
+        poolData[4] = 0; // totalRewardsPaid (needs tracking)
+        poolData[5] = 0; // averageAPY (needs calculation)
+        poolData[6] = block.timestamp;
+        poolData[7] = 0; // reserved
+        
+        // User data
+        userData[0] = getStakedTokenCount(user);
+        userData[1] = _calculatePendingRewards(user);
+        userData[2] = 0; // totalEarned (needs tracking)
+        userData[3] = 0; // stakingDuration (needs calculation)
+        userData[4] = stakedTokens[user].length;
+        userData[5] = 0; // reserved
+        
+        // Token validation
+        uint256 length = tokenIds.length;
+        canStake = new bool[](length);
+        isCurrentlyStaked = new bool[](length);
+        userOwnsToken = new bool[](length);
+        
+        uint256 stakeableCount = 0;
+        uint256 unstakeableCount = 0;
+        
+        for (uint256 i = 0; i < length; i++) {
+            uint256 tokenId = tokenIds[i];
+            
+            isCurrentlyStaked[i] = isStaked[tokenId];
+            userOwnsToken[i] = !isCurrentlyStaked[i]; // Simplified ownership check
+            canStake[i] = userOwnsToken[i] && !isCurrentlyStaked[i] && !paused();
+            
+            if (canStake[i]) stakeableCount++;
+            if (isCurrentlyStaked[i] && stakerOf[tokenId] == user) unstakeableCount++;
+        }
+        
+        // Gas estimates
+        stakeAllGas = stakeableCount * 150000;
+        unstakeAllGas = unstakeableCount * 120000;
+        claimGas = userData[1] > 0 ? 80000 : 0;
+    }
+
     function _authorizeUpgrade(address) internal override onlyOwner {}
 
     receive() external payable {

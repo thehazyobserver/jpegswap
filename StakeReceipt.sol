@@ -2052,6 +2052,259 @@ contract StakeReceipt is ERC721Enumerable, Ownable {
                 block.timestamp - newestActive : 0;
         }
     }
+
+    // 🎯 FRONTEND OPTIMIZATION FUNCTIONS
+
+    /**
+     * @dev Get comprehensive receipt portfolio for user dashboard
+     */
+    function getUserReceiptPortfolio(address user) external view returns (
+        // Portfolio summary
+        uint256 totalReceipts,
+        uint256 averageHoldingTime,
+        uint256 totalOriginalValue,    // Count of original tokens represented
+        // Receipt details arrays
+        uint256[] memory receiptIds,
+        uint256[] memory originalTokenIds,
+        uint256[] memory holdingDurations,
+        address[] memory poolAddresses,
+        // Portfolio statistics
+        uint256 oldestReceiptAge,
+        uint256 newestReceiptAge,
+        bool hasLongTermHoldings     // More than 30 days
+    ) {
+        totalReceipts = balanceOf(user);
+        
+        if (totalReceipts == 0) {
+            // Return empty arrays for users with no receipts
+            receiptIds = new uint256[](0);
+            originalTokenIds = new uint256[](0);
+            holdingDurations = new uint256[](0);
+            poolAddresses = new address[](0);
+            return (0, 0, 0, receiptIds, originalTokenIds, holdingDurations, poolAddresses, 0, 0, false);
+        }
+        
+        // Initialize arrays
+        receiptIds = new uint256[](totalReceipts);
+        originalTokenIds = new uint256[](totalReceipts);
+        holdingDurations = new uint256[](totalReceipts);
+        poolAddresses = new address[](totalReceipts);
+        
+        uint256 totalHoldingTime = 0;
+        oldestReceiptAge = 0;
+        newestReceiptAge = block.timestamp;
+        
+        for (uint256 i = 0; i < totalReceipts; i++) {
+            uint256 receiptId = tokenOfOwnerByIndex(user, i);
+            uint256 mintTime = receiptMintTime[receiptId];
+            uint256 holdingTime = mintTime > 0 ? block.timestamp - mintTime : 0;
+            
+            receiptIds[i] = receiptId;
+            originalTokenIds[i] = receiptToOriginalToken[receiptId];
+            holdingDurations[i] = holdingTime;
+            poolAddresses[i] = pool; // All receipts from same pool
+            
+            totalHoldingTime += holdingTime;
+            
+            if (holdingTime > oldestReceiptAge) {
+                oldestReceiptAge = holdingTime;
+            }
+            if (holdingTime < newestReceiptAge) {
+                newestReceiptAge = holdingTime;
+            }
+            
+            if (holdingTime > 30 days) {
+                hasLongTermHoldings = true;
+            }
+        }
+        
+        averageHoldingTime = totalReceipts > 0 ? totalHoldingTime / totalReceipts : 0;
+        totalOriginalValue = totalReceipts; // Each receipt represents one original token
+    }
+
+    /**
+     * @dev Get receipt metadata for display optimization
+     */
+    function getBatchReceiptMetadata(uint256[] calldata receiptIds) external view returns (
+        bool[] memory exists,
+        string[] memory tokenURIs,
+        uint256[] memory originalTokenIds,
+        uint256[] memory ages,
+        address[] memory currentOwners,
+        bool[] memory isStillStaked  // Check if still active in pool
+    ) {
+        uint256 length = receiptIds.length;
+        exists = new bool[](length);
+        tokenURIs = new string[](length);
+        originalTokenIds = new uint256[](length);
+        ages = new uint256[](length);
+        currentOwners = new address[](length);
+        isStillStaked = new bool[](length);
+        
+        for (uint256 i = 0; i < length; i++) {
+            uint256 receiptId = receiptIds[i];
+            exists[i] = _exists(receiptId);
+            
+            if (exists[i]) {
+                tokenURIs[i] = tokenURI(receiptId);
+                originalTokenIds[i] = receiptToOriginalToken[receiptId];
+                currentOwners[i] = ownerOf(receiptId);
+                
+                uint256 mintTime = receiptMintTime[receiptId];
+                ages[i] = mintTime > 0 ? block.timestamp - mintTime : 0;
+                
+                // Check if still staked (basic implementation)
+                isStillStaked[i] = true; // Assume still staked if receipt exists
+            }
+        }
+    }
+
+    /**
+     * @dev Get receipt analytics for collection insights
+     */
+    function getReceiptAnalytics() external view returns (
+        // Basic statistics
+        uint256 totalActive,
+        uint256 averageAge,
+        uint256 medianAge,
+        // Distribution data
+        uint256 receiptsUnder1Day,
+        uint256 receipts1to7Days,
+        uint256 receipts1to4Weeks,
+        uint256 receiptsOver1Month,
+        // Activity metrics
+        uint256 dailyMintRate,      // Estimated based on recent activity
+        uint256 retentionRate,      // Percentage of long-term holders
+        bool collectionHealthy      // Based on distribution and activity
+    ) {
+        totalActive = totalSupply();
+        
+        if (totalActive == 0) {
+            return (0, 0, 0, 0, 0, 0, 0, 0, 0, true);
+        }
+        
+        uint256[] memory ages = new uint256[](totalActive);
+        uint256 totalAge = 0;
+        
+        // Collect all ages
+        for (uint256 i = 0; i < totalActive; i++) {
+            uint256 tokenId = tokenByIndex(i);
+            uint256 mintTime = receiptMintTime[tokenId];
+            uint256 age = mintTime > 0 ? block.timestamp - mintTime : 0;
+            ages[i] = age;
+            totalAge += age;
+        }
+        
+        averageAge = totalAge / totalActive;
+        
+        // Calculate distributions
+        for (uint256 i = 0; i < totalActive; i++) {
+            uint256 age = ages[i];
+            
+            if (age < 1 days) {
+                receiptsUnder1Day++;
+            } else if (age < 7 days) {
+                receipts1to7Days++;
+            } else if (age < 4 weeks) {
+                receipts1to4Weeks++;
+            } else {
+                receiptsOver1Month++;
+            }
+        }
+        
+        // Calculate median (simplified)
+        medianAge = averageAge; // For simplicity, use average as median estimate
+        
+        // Calculate metrics
+        retentionRate = totalActive > 0 ? (receiptsOver1Month * 10000) / totalActive : 0; // Basis points
+        dailyMintRate = receiptsUnder1Day; // Simplified estimate
+        
+        // Health check: Good distribution and retention
+        collectionHealthy = (receiptsOver1Month > 0 || receipts1to4Weeks > totalActive / 4) && 
+                          totalActive > 0;
+    }
+
+    /**
+     * @dev Frontend helper: Check if receipt can be used for specific operations
+     */
+    function validateReceiptOperations(uint256[] calldata receiptIds, address user) external view returns (
+        bool[] memory canTransfer,     // Always false for non-transferable
+        bool[] memory canBurn,         // If user owns it and pool allows
+        bool[] memory canViewMetadata, // If it exists
+        bool[] memory userOwnsReceipt, // Ownership check
+        uint256[] memory estimatedGas  // Gas estimates for operations
+    ) {
+        uint256 length = receiptIds.length;
+        canTransfer = new bool[](length);
+        canBurn = new bool[](length);
+        canViewMetadata = new bool[](length);
+        userOwnsReceipt = new bool[](length);
+        estimatedGas = new uint256[](length);
+        
+        for (uint256 i = 0; i < length; i++) {
+            uint256 receiptId = receiptIds[i];
+            bool exists = _exists(receiptId);
+            
+            canTransfer[i] = false; // Always non-transferable
+            canViewMetadata[i] = exists;
+            
+            if (exists) {
+                address owner = ownerOf(receiptId);
+                userOwnsReceipt[i] = (owner == user);
+                canBurn[i] = userOwnsReceipt[i]; // Can burn if owned
+                estimatedGas[i] = 50000; // Estimated gas for burn operation
+            } else {
+                estimatedGas[i] = 0;
+            }
+        }
+    }
+
+    /**
+     * @dev Get receipt collection overview for dashboard
+     */
+    function getCollectionOverview() external view returns (
+        // Collection metrics
+        uint256 totalMinted,
+        uint256 totalBurned,
+        uint256 currentActive,
+        uint256 uniqueHolders,
+        // Recent activity (simplified)
+        uint256 recentMints,        // Last 24 hours
+        uint256 recentBurns,        // Last 24 hours
+        uint256 mintingVelocity,    // Rate of new receipts
+        // Collection health
+        bool isActive,
+        uint256 averageHolderBalance,
+        string memory poolStatus
+    ) {
+        currentActive = totalSupply();
+        totalMinted = _currentReceiptId > 0 ? _currentReceiptId - 1 : 0;
+        totalBurned = totalMinted - currentActive;
+        
+        // Count unique holders (limited for gas efficiency)
+        uint256 sampleSize = currentActive > 50 ? 50 : currentActive;
+        uint256 holderCount = 0;
+        
+        for (uint256 i = 0; i < sampleSize; i++) {
+            if (i < currentActive) {
+                address tokenOwner = ownerOf(tokenByIndex(i));
+                if (balanceOf(tokenOwner) > 0) {
+                    holderCount++;
+                }
+            }
+        }
+        
+        uniqueHolders = sampleSize > 0 ? (holderCount * currentActive) / sampleSize : 0;
+        
+        // Simplified recent activity
+        recentMints = 0;    // Would need timestamp tracking
+        recentBurns = 0;    // Would need timestamp tracking
+        mintingVelocity = 0; // Would need trend analysis
+        
+        isActive = currentActive > 0 && pool != address(0);
+        averageHolderBalance = uniqueHolders > 0 ? currentActive / uniqueHolders : 0;
+        poolStatus = isActive ? "Active" : "Inactive";
+    }
     
     /// @dev Register my contract on Sonic FeeM
     function registerMe() external onlyOwner {
