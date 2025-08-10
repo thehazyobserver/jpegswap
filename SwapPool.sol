@@ -826,8 +826,75 @@ contract SwapPoolNative is
         lastUpdateTime = block.timestamp;
     }
 
-    // 💰 SWAP WITH COMPLETE REWARD DISTRIBUTION + POOL TRACKING
-    function swapNFT(uint256 tokenIdIn, uint256 tokenIdOut)
+    // 💰 SWAP WITH RANDOM NFT SELECTION + COMPLETE REWARD DISTRIBUTION
+    function swapNFT(uint256 tokenIdIn)
+        external
+        payable
+        nonReentrant
+        onlyInitialized
+        whenNotPaused
+        minimumLiquidity
+        updateReward(address(0)) // Update global rewards
+    {
+        // 🛡️ ENHANCED VALIDATION
+        if (IERC721(nftCollection).ownerOf(tokenIdIn) != msg.sender) revert NotTokenOwner();
+        if (IERC721(nftCollection).getApproved(tokenIdIn) != address(this) && 
+            !IERC721(nftCollection).isApprovedForAll(msg.sender, address(this))) {
+            revert TokenNotApproved();
+        }
+        if (msg.value != swapFeeInWei) revert IncorrectFee();
+        if (poolTokens.length == 0) revert NoTokensAvailable();
+
+        // 🎲 GET RANDOM NFT FROM POOL
+        uint256 tokenIdOut = _getRandomAvailableToken();
+        if (tokenIdIn == tokenIdOut) revert SameTokenSwap();
+
+        // Calculate fee distribution
+        uint256 stonerAmount = 0;
+        uint256 rewardAmount = msg.value;
+
+        if (stonerShare > 0) {
+            stonerAmount = (msg.value * stonerShare) / 100;
+            rewardAmount = msg.value - stonerAmount;
+        }
+
+        // 🔄 Update pool token tracking FIRST (CEI pattern)
+        _removeTokenFromPool(tokenIdOut);
+        _addTokenToPool(tokenIdIn);
+
+        // 🎯 DISTRIBUTE REMAINING AS REWARDS TO STAKERS (ENHANCED PRECISION)
+        if (rewardAmount > 0 && totalStaked > 0) {
+            // Use higher precision to minimize rounding errors
+            uint256 rewardWithRemainder = (rewardAmount * PRECISION) + rewardRemainder;
+            uint256 rewardPerTokenAmount = rewardWithRemainder / totalStaked;
+            rewardRemainder = rewardWithRemainder % totalStaked;
+            
+            // Add rewards to the reward pool with enhanced precision
+            rewardPerTokenStored += rewardPerTokenAmount / 1e9; // Convert back from PRECISION to 1e18
+            totalPrecisionRewards += rewardWithRemainder;
+            totalRewardsDistributed += rewardAmount;
+            emit RewardsDistributed(rewardAmount);
+        }
+
+        // Execute the swap - NFT transfers
+        IERC721(nftCollection).safeTransferFrom(msg.sender, address(this), tokenIdIn);
+        IERC721(nftCollection).safeTransferFrom(address(this), msg.sender, tokenIdOut);
+        
+        // 🔒 SECURITY: Revoke any remaining approvals to prevent double-spend
+        if (IERC721(nftCollection).getApproved(tokenIdIn) == address(this)) {
+            IERC721(nftCollection).approve(address(0), tokenIdIn);
+        }
+
+        // External calls LAST (CEI pattern)
+        if (stonerAmount > 0) {
+            payable(stonerPool).sendValue(stonerAmount);
+        }
+
+        emit SwapExecuted(msg.sender, tokenIdIn, tokenIdOut, msg.value);
+    }
+
+    // 💰 SWAP WITH USER-SELECTED NFT (for specific requests)
+    function swapNFTForSpecific(uint256 tokenIdIn, uint256 tokenIdOut)
         external
         payable
         nonReentrant
@@ -890,7 +957,137 @@ contract SwapPoolNative is
         emit SwapExecuted(msg.sender, tokenIdIn, tokenIdOut, msg.value);
     }
 
-    function swapNFTBatch(uint256[] calldata tokenIdsIn, uint256[] calldata tokenIdsOut)
+    // 💰 BATCH SWAP WITH RANDOM NFT SELECTION
+    function swapNFTBatch(uint256[] calldata tokenIdsIn)
+        external
+        payable
+        nonReentrant
+        onlyInitialized
+        whenNotPaused
+        minimumLiquidity
+        updateReward(address(0)) // Update global rewards
+    {
+        // 🛡️ BATCH VALIDATION
+        require(tokenIdsIn.length > 0, "Empty array");
+        require(tokenIdsIn.length <= maxBatchSize, "Batch limit");
+        require(poolTokens.length >= tokenIdsIn.length, "Not enough pool tokens");
+        
+        // 🔍 DUPLICATE DETECTION
+        _checkForDuplicates(tokenIdsIn);
+        
+        uint256 totalFeeRequired = swapFeeInWei * tokenIdsIn.length;
+        if (msg.value != totalFeeRequired) revert IncorrectFee();
+
+        // Validate all input tokens before any state changes
+        for (uint256 i = 0; i < tokenIdsIn.length; i++) {
+            uint256 tokenIdIn = tokenIdsIn[i];
+            
+            // Check ownership and approval for input tokens
+            if (IERC721(nftCollection).ownerOf(tokenIdIn) != msg.sender) revert NotTokenOwner();
+            if (IERC721(nftCollection).getApproved(tokenIdIn) != address(this) && 
+                !IERC721(nftCollection).isApprovedForAll(msg.sender, address(this))) {
+                revert TokenNotApproved();
+            }
+        }
+
+        // 🎲 Generate random output tokens (no duplicates)
+        uint256[] memory tokenIdsOut = new uint256[](tokenIdsIn.length);
+        uint256[] memory usedIndices = new uint256[](tokenIdsIn.length);
+        
+        for (uint256 i = 0; i < tokenIdsIn.length; i++) {
+            uint256 attempts = 0;
+            uint256 randomIndex;
+            bool isUnique;
+            
+            // Try to find unique random token (max 100 attempts to avoid infinite loop)
+            do {
+                randomIndex = uint256(keccak256(abi.encodePacked(
+                    block.timestamp,
+                    block.prevrandao,
+                    msg.sender,
+                    i,
+                    attempts,
+                    poolTokens.length
+                ))) % poolTokens.length;
+                
+                isUnique = true;
+                
+                // Check if this index was already used
+                for (uint256 j = 0; j < i; j++) {
+                    if (usedIndices[j] == randomIndex) {
+                        isUnique = false;
+                        break;
+                    }
+                }
+                
+                // Check if it's not the same as input token
+                if (isUnique && poolTokens[randomIndex] == tokenIdsIn[i]) {
+                    isUnique = false;
+                }
+                
+                attempts++;
+            } while (!isUnique && attempts < 100);
+            
+            require(isUnique, "Cannot find unique random token");
+            
+            usedIndices[i] = randomIndex;
+            tokenIdsOut[i] = poolTokens[randomIndex];
+        }
+
+        // Calculate fee distribution
+        uint256 stonerAmount = 0;
+        uint256 rewardAmount = msg.value;
+
+        if (stonerShare > 0) {
+            stonerAmount = (msg.value * stonerShare) / 100;
+            rewardAmount = msg.value - stonerAmount;
+        }
+
+        // 🔄 Update pool token tracking FIRST (CEI pattern)
+        for (uint256 i = 0; i < tokenIdsIn.length; i++) {
+            _removeTokenFromPool(tokenIdsOut[i]);
+            _addTokenToPool(tokenIdsIn[i]);
+        }
+
+        // 🎯 DISTRIBUTE REMAINING AS REWARDS TO STAKERS (ENHANCED PRECISION)
+        if (rewardAmount > 0 && totalStaked > 0) {
+            // Use higher precision to minimize rounding errors
+            uint256 rewardWithRemainder = (rewardAmount * PRECISION) + rewardRemainder;
+            uint256 rewardPerTokenAmount = rewardWithRemainder / totalStaked;
+            rewardRemainder = rewardWithRemainder % totalStaked;
+            
+            // Add rewards to the reward pool with enhanced precision
+            rewardPerTokenStored += rewardPerTokenAmount / 1e9; // Convert back from PRECISION to 1e18
+            totalPrecisionRewards += rewardWithRemainder;
+            totalRewardsDistributed += rewardAmount;
+            emit RewardsDistributed(rewardAmount);
+        }
+
+        // Execute all swaps - NFT transfers
+        for (uint256 i = 0; i < tokenIdsIn.length; i++) {
+            IERC721(nftCollection).safeTransferFrom(msg.sender, address(this), tokenIdsIn[i]);
+            IERC721(nftCollection).safeTransferFrom(address(this), msg.sender, tokenIdsOut[i]);
+            
+            // 🔒 SECURITY: Revoke any remaining approvals to prevent double-spend
+            if (IERC721(nftCollection).getApproved(tokenIdsIn[i]) == address(this)) {
+                IERC721(nftCollection).approve(address(0), tokenIdsIn[i]);
+            }
+            
+            // Emit event for each swap in the batch
+            emit SwapExecuted(msg.sender, tokenIdsIn[i], tokenIdsOut[i], swapFeeInWei);
+        }
+
+        // External calls LAST (CEI pattern)
+        if (stonerAmount > 0) {
+            payable(stonerPool).sendValue(stonerAmount);
+        }
+
+        // Emit batch completion event
+        emit BatchSwapExecuted(msg.sender, tokenIdsIn.length, msg.value);
+    }
+
+    // 💰 BATCH SWAP WITH SPECIFIC NFT SELECTION (for advanced users)
+    function swapNFTBatchSpecific(uint256[] calldata tokenIdsIn, uint256[] calldata tokenIdsOut)
         external
         payable
         nonReentrant
