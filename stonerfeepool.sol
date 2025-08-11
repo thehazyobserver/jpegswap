@@ -2213,7 +2213,7 @@ contract StonerFeePool is
      */
     function getPoolDashboard(address user) external view returns (
         // Pool statistics
-        uint256 totalStaked,
+        uint256 totalStakedTokens,
         uint256 totalRewardsDistributed,
         uint256 currentNativeRewards,
         uint256 averageStakingDuration,
@@ -2228,17 +2228,17 @@ contract StonerFeePool is
         uint256 recentActivity,
         string memory poolStatus
     ) {
-        totalStaked = this.totalStaked();
+        totalStakedTokens = totalStaked;
         totalRewardsDistributed = 0; // Would need tracking
         currentNativeRewards = address(this).balance;
         averageStakingDuration = 0; // Would need calculation
         
-        userStakedCount = getStakedTokenCount(user);
+        userStakedCount = stakedTokens[user].length;
         userPendingRewards = _calculatePendingRewards(user);
         userTotalEarned = 0; // Would need tracking
         userAverageStakingTime = 0; // Would need calculation
         
-        poolActive = !paused() && initialized;
+        poolActive = !paused();
         stakingAPR = 0; // Would need calculation based on rewards
         recentActivity = 0; // Would need tracking
         poolStatus = poolActive ? "Active" : "Paused";
@@ -2416,7 +2416,7 @@ contract StonerFeePool is
         actionRequired = new bool[](maxRecommendations);
         
         uint256 recCount = 0;
-        uint256 userStakeCount = getStakedTokenCount(user);
+        uint256 userStakeCount = stakedTokens[user].length;
         uint256 pendingRewards = _calculatePendingRewards(user);
         
         if (pendingRewards > 0) {
@@ -2440,7 +2440,7 @@ contract StonerFeePool is
             recCount++;
         }
         
-        if (currentRewardPool > 0) {
+        if (address(this).balance > 0) {
             recommendations[recCount] = "Pool has active rewards";
             priorityScores[recCount] = 70;
             actionRequired[recCount] = false;
@@ -2482,14 +2482,14 @@ contract StonerFeePool is
         poolData[0] = totalStaked;
         poolData[1] = address(this).balance;
         poolData[2] = paused() ? 0 : 1;
-        poolData[3] = initialized ? 1 : 0;
+        poolData[3] = 1; // Always initialized for this version
         poolData[4] = 0; // totalRewardsPaid (needs tracking)
         poolData[5] = 0; // averageAPY (needs calculation)
         poolData[6] = block.timestamp;
         poolData[7] = 0; // reserved
         
         // User data
-        userData[0] = getStakedTokenCount(user);
+        userData[0] = stakedTokens[user].length;
         userData[1] = _calculatePendingRewards(user);
         userData[2] = 0; // totalEarned (needs tracking)
         userData[3] = 0; // stakingDuration (needs calculation)
