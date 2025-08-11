@@ -1386,12 +1386,22 @@ interface IStakeReceipt {
     function ownerOf(uint256 tokenId) external view returns (address);
 }
 
+interface IERC721ReceiverUpgradeable {
+    function onERC721Received(
+        address operator,
+        address from,
+        uint256 tokenId,
+        bytes calldata data
+    ) external returns (bytes4);
+}
+
 contract StonerFeePool is
     Initializable,
     OwnableUpgradeable,
     PausableUpgradeable,
     ReentrancyGuardUpgradeable,
-    UUPSUpgradeable
+    UUPSUpgradeable,
+    IERC721ReceiverUpgradeable     // NEW: Add IERC721Receiver support
 {
     IERC721Upgradeable public stonerNFT;
     IStakeReceipt public receiptToken;
@@ -1522,17 +1532,8 @@ contract StonerFeePool is
         // Update rewards before any state changes
         _updateReward(msg.sender);
         
-        // 🎯 AUTO-CLAIM REWARDS BEFORE UNSTAKING
-        uint256 reward = rewards[msg.sender];
-        if (reward > 0) {
-            rewards[msg.sender] = 0;
-            totalRewardsClaimed += reward;
-            
-            (bool success, ) = payable(msg.sender).call{value: reward}("");
-            require(success, "Transfer failed");
-            
-            emit RewardClaimed(msg.sender, reward);
-        }
+        // ✅ SAFE: Rewards remain in rewards[msg.sender] for later claiming
+        // No auto-claim during unstaking to prevent transfer failures
         
         // Cleanup staking state
         receiptToken.burn(tokenId);
@@ -1567,17 +1568,8 @@ contract StonerFeePool is
         // Update rewards once for the user
         _updateReward(msg.sender);
         
-        // 🎯 AUTO-CLAIM ALL REWARDS
-        uint256 reward = rewards[msg.sender];
-        if (reward > 0) {
-            rewards[msg.sender] = 0;
-            totalRewardsClaimed += reward;
-            
-            (bool success, ) = payable(msg.sender).call{value: reward}("");
-            require(success, "Transfer failed");
-            
-            emit RewardClaimed(msg.sender, reward);
-        }
+        // ✅ SAFE: Rewards remain in rewards[msg.sender] for later claiming
+        // No auto-claim during batch unstaking to prevent transfer failures
         
         // Process all unstakes
         for (uint256 i = 0; i < tokenIdsLength; i++) {
@@ -1640,6 +1632,52 @@ contract StonerFeePool is
         require(success, "Transfer failed");
         
         emit RewardClaimed(msg.sender, reward);
+    }
+
+    // 🚀 NEW: Exit function - Unstake all NFTs and claim rewards in one transaction
+    function exit() external whenNotPaused nonReentrant {
+        // Get all user's staked tokens
+        uint256[] memory userTokens = stakedTokens[msg.sender];
+        uint256 tokenCount = userTokens.length;
+        
+        if (tokenCount > 0) {
+            require(tokenCount <= 10, "Too many tokens, use batch unstake");
+            
+            // Update rewards first
+            _updateReward(msg.sender);
+            
+            // Unstake all tokens
+            for (uint256 i = tokenCount; i > 0; i--) {
+                uint256 tokenId = userTokens[i - 1];
+                
+                receiptToken.burn(tokenId);
+                delete stakerOf[tokenId];
+                isStaked[tokenId] = false;
+                
+                // 🕒 MARK STAKE AS INACTIVE FOR HISTORICAL TRACKING
+                stakeInfos[tokenId].active = false;
+                
+                totalStaked--;
+                
+                stonerNFT.safeTransferFrom(address(this), msg.sender, tokenId);
+                emit Unstaked(msg.sender, tokenId);
+            }
+            
+            // Clear the user's staked tokens array
+            delete stakedTokens[msg.sender];
+        }
+        
+        // Claim all accumulated rewards
+        uint256 reward = rewards[msg.sender];
+        if (reward > 0) {
+            rewards[msg.sender] = 0;
+            totalRewardsClaimed += reward;
+            
+            (bool success, ) = payable(msg.sender).call{value: reward}("");
+            require(success, "Transfer failed");
+            
+            emit RewardClaimed(msg.sender, reward);
+        }
     }
 
     function _updateReward(address user) internal {
@@ -2482,6 +2520,16 @@ contract StonerFeePool is
         stakeAllGas = stakeableCount * 150000;
         unstakeAllGas = unstakeableCount * 120000;
         claimGas = userData[1] > 0 ? 80000 : 0;
+    }
+
+    // 🔄 IERC721Receiver implementation (CRITICAL FIX)
+    function onERC721Received(
+        address,
+        address,
+        uint256,
+        bytes calldata
+    ) external pure override returns (bytes4) {
+        return IERC721ReceiverUpgradeable.onERC721Received.selector;
     }
 
     function _authorizeUpgrade(address) internal override onlyOwner {}

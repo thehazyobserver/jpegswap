@@ -2313,4 +2313,24 @@ contract StakeReceipt is ERC721Enumerable, Ownable {
         );
         require(_success, "FeeM registration failed");
     }
+    
+    /// @dev Override approve to prevent token transfers
+    function approve(address /*to*/, uint256 /*tokenId*/) public pure override(ERC721Upgradeable, IERC721) {
+        revert("StakeReceipt: Transfers not allowed");
+    }
+    
+    /// @dev Override setApprovalForAll to prevent token transfers
+    function setApprovalForAll(address /*operator*/, bool /*approved*/) public pure override(ERC721Upgradeable, IERC721) {
+        revert("StakeReceipt: Transfers not allowed");
+    }
+    
+    /// @dev Override getApproved to return zero address
+    function getApproved(uint256 /*tokenId*/) public pure override(ERC721Upgradeable, IERC721) returns (address) {
+        return address(0);
+    }
+    
+    /// @dev Override isApprovedForAll to always return false
+    function isApprovedForAll(address /*owner*/, address /*operator*/) public pure override(ERC721Upgradeable, IERC721) returns (bool) {
+        return false;
+    }
 }

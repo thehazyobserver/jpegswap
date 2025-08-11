@@ -674,6 +674,15 @@ interface IERC721 is IERC165 {
     function isApprovedForAll(address owner, address operator) external view returns (bool);
 }
 
+interface IERC721ReceiverUpgradeable {
+    function onERC721Received(
+        address operator,
+        address from,
+        uint256 tokenId,
+        bytes calldata data
+    ) external returns (bytes4);
+}
+
 // File: contracts/SwapPoolNative.sol
 
 pragma solidity ^0.8.19;
@@ -691,7 +700,8 @@ contract SwapPoolNative is
     OwnableUpgradeable,
     PausableUpgradeable,
     ReentrancyGuardUpgradeable,
-    UUPSUpgradeable
+    UUPSUpgradeable,
+    IERC721ReceiverUpgradeable     // NEW: Add IERC721Receiver support
 {
     using AddressUpgradeable for address payable;
 
@@ -806,10 +816,12 @@ contract SwapPoolNative is
         address _receiptContract,
         address _stonerPool,
         uint256 _swapFeeInWei,
-        uint256 _stonerShare
+        uint256 _stonerShare,
+        address _initialOwner            // NEW: Fix owner initialization
     ) public initializer {
         require(_nftCollection != address(0) && _stonerPool != address(0), "Zero address");
         require(_receiptContract != address(0), "Zero receipt");
+        require(_initialOwner != address(0), "Zero owner");     // NEW: Validate owner
         require(_stonerShare <= 100, "Bad share");
 
         __Ownable_init();
@@ -824,6 +836,8 @@ contract SwapPoolNative is
         stonerShare = _stonerShare;
         initialized = true;
         lastUpdateTime = block.timestamp;
+
+        _transferOwnership(_initialOwner);                      // NEW: Set proper owner
     }
 
     // 💰 SWAP WITH RANDOM NFT SELECTION + COMPLETE REWARD DISTRIBUTION
@@ -1299,7 +1313,7 @@ contract SwapPoolNative is
         delete _batchReturnedTokens;
     }
 
-    // 🎯 INTERNAL UNSTAKING LOGIC WITH BATCH OPERATION SUPPORT + AUTO-CLAIM
+    // 🎯 INTERNAL UNSTAKING LOGIC WITH BATCH OPERATION SUPPORT (SAFE REWARDS)
     function _unstakeNFTInternal(uint256 receiptTokenId) internal {
         // Verify receipt ownership
         if (IReceiptContract(receiptContract).ownerOf(receiptTokenId) != msg.sender) revert NotReceiptOwner();
@@ -1309,13 +1323,8 @@ contract SwapPoolNative is
         
         uint256 originalTokenId = receiptToOriginalToken[receiptTokenId];
         
-        // 🎯 AUTO-CLAIM REWARDS BEFORE UNSTAKING
-        uint256 rewardsToSend = pendingRewards[msg.sender];
-        if (rewardsToSend > 0) {
-            pendingRewards[msg.sender] = 0;
-            payable(msg.sender).sendValue(rewardsToSend);
-            emit RewardsClaimed(msg.sender, rewardsToSend);
-        }
+        // ✅ SAFE: Rewards remain in pendingRewards[msg.sender] for later claiming
+        // No auto-claim during unstaking to prevent transfer failures
         
         // Mark stake as inactive
         stakeInfo.active = false;
@@ -1386,6 +1395,49 @@ contract SwapPoolNative is
         payable(msg.sender).sendValue(reward);
 
         emit RewardsClaimed(msg.sender, reward);
+    }
+
+    // 🚀 NEW: Exit function - Unstake all NFTs and claim rewards in one transaction
+    function exit() 
+        external 
+        nonReentrant 
+        onlyInitialized 
+        whenNotPaused 
+        updateReward(msg.sender)
+    {
+        // First unstake all user's NFTs
+        uint256[] memory userReceiptTokens = userStakes[msg.sender];
+        uint256 userStakeCount = userReceiptTokens.length;
+        
+        if (userStakeCount > 0) {
+            require(userStakeCount <= maxBatchSize, "Too many stakes, use batch unstake");
+            
+            // Initialize batch tracking
+            _inBatchOperation = true;
+            delete _batchReceiptTokens;
+            delete _batchReturnedTokens;
+            
+            // Unstake all NFTs (this will update rewards via modifier)
+            for (uint256 i = userStakeCount; i > 0; i--) {
+                _unstakeNFTInternal(userReceiptTokens[i - 1]);
+            }
+            
+            // Emit batch event
+            emit BatchUnstaked(msg.sender, _batchReceiptTokens, _batchReturnedTokens);
+            
+            // Reset batch tracking
+            _inBatchOperation = false;
+            delete _batchReceiptTokens;
+            delete _batchReturnedTokens;
+        }
+        
+        // Then claim all accumulated rewards
+        uint256 reward = pendingRewards[msg.sender];
+        if (reward > 0) {
+            pendingRewards[msg.sender] = 0;
+            payable(msg.sender).sendValue(reward);
+            emit RewardsClaimed(msg.sender, reward);
+        }
     }
 
     // 🎲 POOL TOKEN MANAGEMENT FUNCTIONS
@@ -2334,6 +2386,16 @@ contract SwapPoolNative is
         flags[0] = !paused() && initialized;
         flags[1] = flags[0] && poolTokens.length >= minPoolSize;
         flags[2] = basicStats[3] > 0;
+    }
+
+    // 🔄 IERC721Receiver implementation (CRITICAL FIX)
+    function onERC721Received(
+        address,
+        address,
+        uint256,
+        bytes calldata
+    ) external pure override returns (bytes4) {
+        return IERC721ReceiverUpgradeable.onERC721Received.selector;
     }
 
     // Only allow ETH for swap fees - reject other ETH deposits

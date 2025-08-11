@@ -1009,7 +1009,8 @@ interface ISwapPoolNative {
         address receiptContract,
         address stonerPool,
         uint256 swapFeeInWei,
-        uint256 stonerShare
+        uint256 stonerShare,
+        address initialOwner              // NEW: Add initialOwner parameter
     ) external;
     function pause() external;
     function unpause() external;
@@ -1050,13 +1051,15 @@ contract SwapPoolFactoryNative is Ownable, ReentrancyGuard {
         address receiptContract,
         address stonerPool,
         uint256 swapFeeInWei,
-        uint256 stonerShare
+        uint256 stonerShare,
+        address initialOwner                    // NEW: Add initialOwner parameter
     ) external onlyOwner returns (address) {
         // Input validation
         if (
             nftCollection == address(0) ||
             receiptContract == address(0) ||
-            stonerPool == address(0)
+            stonerPool == address(0) ||
+            initialOwner == address(0)          // NEW: Validate initialOwner
         ) revert ZeroAddressNotAllowed();
 
         if (collectionToPool[nftCollection] != address(0)) revert PoolAlreadyExists();
@@ -1078,7 +1081,8 @@ contract SwapPoolFactoryNative is Ownable, ReentrancyGuard {
             receiptContract,
             stonerPool,
             swapFeeInWei,
-            stonerShare
+            stonerShare,
+            initialOwner                       // NEW: Pass initialOwner to initialize
         );
 
         ERC1967Proxy proxy = new ERC1967Proxy(implementation, initData);
