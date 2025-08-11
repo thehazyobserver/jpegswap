@@ -570,7 +570,7 @@ contract SwapPoolNative is
         require(_nftCollection != address(0) && _stonerPool != address(0), "Zero address");
         require(_receiptContract != address(0), "Zero receipt");
         require(_initialOwner != address(0), "Zero owner");
-        require(_stonerShare <= 100, "Bad share");
+        require(_stonerShare < 100, "Bad share");
 
         __Ownable_init();
         __Pausable_init();
