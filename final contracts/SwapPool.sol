@@ -645,59 +645,6 @@ contract SwapPoolNative is
         emit SwapExecuted(msg.sender, tokenIdIn, tokenIdOut, msg.value);
     }
 
-    function swapNFTForSpecific(uint256 tokenIdIn, uint256 tokenIdOut)
-        external
-        payable
-        nonReentrant
-        onlyInitialized
-        whenNotPaused
-        minimumLiquidity
-        updateReward(address(0))
-    {
-        if (IERC721(nftCollection).ownerOf(tokenIdIn) != msg.sender) revert NotTokenOwner();
-        if (IERC721(nftCollection).getApproved(tokenIdIn) != address(this) &&
-            !IERC721(nftCollection).isApprovedForAll(msg.sender, address(this))) {
-            revert TokenNotApproved();
-        }
-        if (IERC721(nftCollection).ownerOf(tokenIdOut) != address(this)) revert TokenUnavailable();
-        if (msg.value != swapFeeInWei) revert IncorrectFee();
-        if (tokenIdIn == tokenIdOut) revert SameTokenSwap();
-
-        uint256 stonerAmount = 0;
-        uint256 rewardAmount = msg.value;
-        if (stonerShare > 0) {
-            stonerAmount = (msg.value * stonerShare) / 100;
-            rewardAmount = msg.value - stonerAmount;
-        }
-
-        // Analytics: Emit fee split for tracking
-        emit FeeSplit(stonerAmount, rewardAmount);
-
-        _removeTokenFromPool(tokenIdOut);
-        _addTokenToPool(tokenIdIn);
-
-        if (rewardAmount > 0 && totalStaked > 0) {
-            uint256 rewardWithRemainder = (rewardAmount * PRECISION) + rewardRemainder;
-            uint256 rewardPerTokenAmount = rewardWithRemainder / totalStaked;
-            rewardRemainder = rewardWithRemainder % totalStaked;
-            rewardPerTokenStored += rewardPerTokenAmount / 1e9;
-            totalPrecisionRewards += rewardWithRemainder;
-            totalRewardsDistributed += rewardAmount;
-            emit RewardsDistributed(rewardAmount);
-        }
-
-        IERC721(nftCollection).safeTransferFrom(msg.sender, address(this), tokenIdIn);
-        IERC721(nftCollection).safeTransferFrom(address(this), msg.sender, tokenIdOut);
-
-        if (IERC721(nftCollection).getApproved(tokenIdIn) == address(this)) {
-            IERC721(nftCollection).approve(address(0), tokenIdIn);
-        }
-        if (stonerAmount > 0) {
-            payable(stonerPool).sendValue(stonerAmount);
-        }
-        emit SwapExecuted(msg.sender, tokenIdIn, tokenIdOut, msg.value);
-    }
-
     function swapNFTBatch(uint256[] calldata tokenIdsIn)
         external
         payable
@@ -745,76 +692,6 @@ contract SwapPoolNative is
             require(isUnique, "Cannot find unique random token");
             usedIndices[i] = randomIndex;
             tokenIdsOut[i] = poolTokens[randomIndex];
-        }
-
-        uint256 stonerAmount = 0;
-        uint256 rewardAmount = msg.value;
-        if (stonerShare > 0) {
-            stonerAmount = (msg.value * stonerShare) / 100;
-            rewardAmount = msg.value - stonerAmount;
-        }
-
-        // Analytics: Emit fee split for tracking
-        emit FeeSplit(stonerAmount, rewardAmount);
-
-        for (uint256 i = 0; i < tokenIdsIn.length; i++) {
-            _removeTokenFromPool(tokenIdsOut[i]);
-            _addTokenToPool(tokenIdsIn[i]);
-        }
-
-        if (rewardAmount > 0 && totalStaked > 0) {
-            uint256 rewardWithRemainder = (rewardAmount * PRECISION) + rewardRemainder;
-            uint256 rewardPerTokenAmount = rewardWithRemainder / totalStaked;
-            rewardRemainder = rewardWithRemainder % totalStaked;
-            rewardPerTokenStored += rewardPerTokenAmount / 1e9;
-            totalPrecisionRewards += rewardWithRemainder;
-            totalRewardsDistributed += rewardAmount;
-            emit RewardsDistributed(rewardAmount);
-        }
-
-        for (uint256 i = 0; i < tokenIdsIn.length; i++) {
-            IERC721(nftCollection).safeTransferFrom(msg.sender, address(this), tokenIdsIn[i]);
-            IERC721(nftCollection).safeTransferFrom(address(this), msg.sender, tokenIdsOut[i]);
-            if (IERC721(nftCollection).getApproved(tokenIdsIn[i]) == address(this)) {
-                IERC721(nftCollection).approve(address(0), tokenIdsIn[i]);
-            }
-            emit SwapExecuted(msg.sender, tokenIdsIn[i], tokenIdsOut[i], swapFeeInWei);
-        }
-
-        if (stonerAmount > 0) {
-            payable(stonerPool).sendValue(stonerAmount);
-        }
-        emit BatchSwapExecuted(msg.sender, tokenIdsIn.length, msg.value);
-    }
-
-    function swapNFTBatchSpecific(uint256[] calldata tokenIdsIn, uint256[] calldata tokenIdsOut)
-        external
-        payable
-        nonReentrant
-        onlyInitialized
-        whenNotPaused
-        minimumLiquidity
-        updateReward(address(0))
-    {
-        require(tokenIdsIn.length > 0 && tokenIdsOut.length > 0, "Empty arrays");
-        require(tokenIdsIn.length == tokenIdsOut.length, "Length mismatch");
-        require(tokenIdsIn.length <= maxBatchSize, "Batch limit");
-        _checkForDuplicates(tokenIdsIn);
-        _checkForDuplicates(tokenIdsOut);
-
-        uint256 totalFeeRequired = swapFeeInWei * tokenIdsIn.length;
-        if (msg.value != totalFeeRequired) revert IncorrectFee();
-
-        for (uint256 i = 0; i < tokenIdsIn.length; i++) {
-            uint256 tokenIdIn = tokenIdsIn[i];
-            uint256 tokenIdOut = tokenIdsOut[i];
-            if (IERC721(nftCollection).ownerOf(tokenIdIn) != msg.sender) revert NotTokenOwner();
-            if (IERC721(nftCollection).getApproved(tokenIdIn) != address(this) &&
-                !IERC721(nftCollection).isApprovedForAll(msg.sender, address(this))) {
-                revert TokenNotApproved();
-            }
-            if (IERC721(nftCollection).ownerOf(tokenIdOut) != address(this)) revert TokenUnavailable();
-            if (tokenIdIn == tokenIdOut) revert SameTokenSwap();
         }
 
         uint256 stonerAmount = 0;
@@ -1122,11 +999,13 @@ contract SwapPoolNative is
     }
     function pause() external onlyOwner { _pause(); }
     function unpause() external onlyOwner { _unpause(); }
-    function emergencyWithdraw(uint256 tokenId) external onlyOwner {
+    function emergencyWithdraw(uint256 tokenId) external onlyOwner whenPaused {
+        require(totalStaked == 0, "Cannot withdraw: active stakes exist");
         _removeTokenFromPool(tokenId); // FIX: Update accounting before transfer
         IERC721(nftCollection).safeTransferFrom(address(this), owner(), tokenId);
     }
-    function emergencyWithdrawBatch(uint256[] calldata tokenIds) external onlyOwner {
+    function emergencyWithdrawBatch(uint256[] calldata tokenIds) external onlyOwner whenPaused {
+        require(totalStaked == 0, "Cannot withdraw: active stakes exist");
         uint256 tokenIdsLength = tokenIds.length;
         for (uint256 i = 0; i < tokenIdsLength; i++) {
             _removeTokenFromPool(tokenIds[i]); // FIX: Update accounting before transfer
