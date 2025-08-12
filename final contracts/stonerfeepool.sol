@@ -1678,7 +1678,8 @@ contract StonerFeePool is
     function _updateReward(address user) internal {
         uint256 userBalance = stakedTokens[user].length;
         uint256 delta = rewardPerTokenStored - userRewardPerTokenPaid[user];
-        uint256 owed = userBalance * delta;
+        // FIX: divide by 1e18 to match rewardPerTokenStored scale
+        uint256 owed = (userBalance * delta) / 1e18;
         rewards[user] += owed;
         userRewardPerTokenPaid[user] = rewardPerTokenStored;
     }
@@ -1764,7 +1765,8 @@ contract StonerFeePool is
     function calculatePendingRewards(address user) external view returns (uint256) {
         uint256 userBalance = stakedTokens[user].length;
         uint256 delta = rewardPerTokenStored - userRewardPerTokenPaid[user];
-        return rewards[user] + (userBalance * delta);
+        // FIX: divide by 1e18 to match rewardPerTokenStored scale
+        return rewards[user] + ((userBalance * delta) / 1e18);
     }
 
     function getPoolInfo() external view returns (
@@ -1779,7 +1781,8 @@ contract StonerFeePool is
     function earned(address user) external view returns (uint256) {
         uint256 userBalance = stakedTokens[user].length;
         uint256 delta = rewardPerTokenStored - userRewardPerTokenPaid[user];
-        return rewards[user] + (userBalance * delta);
+        // FIX: divide by 1e18 to match rewardPerTokenStored scale
+        return rewards[user] + ((userBalance * delta) / 1e18);
     }
 
     function getStakeInfo(uint256 tokenId) external view returns (

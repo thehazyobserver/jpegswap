@@ -520,6 +520,7 @@ contract SwapPoolNative is
     event SwapFeeUpdated(uint256 newFeeInWei);
     event StonerShareUpdated(uint256 newShare);
     event BatchLimitsUpdated(uint256 newMaxBatchSize, uint256 newMaxUnstakeAll);
+    event FeeSplit(uint256 stonerAmount, uint256 rewardsAmount); // Analytics for fee distribution
 
     // Errors
     error AlreadyInitialized();
@@ -616,6 +617,9 @@ contract SwapPoolNative is
             rewardAmount = msg.value - stonerAmount;
         }
 
+        // Analytics: Emit fee split for tracking
+        emit FeeSplit(stonerAmount, rewardAmount);
+
         _removeTokenFromPool(tokenIdOut);
         _addTokenToPool(tokenIdIn);
 
@@ -665,6 +669,9 @@ contract SwapPoolNative is
             stonerAmount = (msg.value * stonerShare) / 100;
             rewardAmount = msg.value - stonerAmount;
         }
+
+        // Analytics: Emit fee split for tracking
+        emit FeeSplit(stonerAmount, rewardAmount);
 
         _removeTokenFromPool(tokenIdOut);
         _addTokenToPool(tokenIdIn);
@@ -747,6 +754,9 @@ contract SwapPoolNative is
             rewardAmount = msg.value - stonerAmount;
         }
 
+        // Analytics: Emit fee split for tracking
+        emit FeeSplit(stonerAmount, rewardAmount);
+
         for (uint256 i = 0; i < tokenIdsIn.length; i++) {
             _removeTokenFromPool(tokenIdsOut[i]);
             _addTokenToPool(tokenIdsIn[i]);
@@ -813,6 +823,9 @@ contract SwapPoolNative is
             stonerAmount = (msg.value * stonerShare) / 100;
             rewardAmount = msg.value - stonerAmount;
         }
+
+        // Analytics: Emit fee split for tracking
+        emit FeeSplit(stonerAmount, rewardAmount);
 
         for (uint256 i = 0; i < tokenIdsIn.length; i++) {
             _removeTokenFromPool(tokenIdsOut[i]);
@@ -1112,9 +1125,6 @@ contract SwapPoolNative is
     function emergencyWithdraw(uint256 tokenId) external onlyOwner {
         _removeTokenFromPool(tokenId); // FIX: Update accounting before transfer
         IERC721(nftCollection).safeTransferFrom(address(this), owner(), tokenId);
-    }
-    function emergencyWithdrawETH() external onlyOwner {
-        payable(owner()).sendValue(address(this).balance);
     }
     function emergencyWithdrawBatch(uint256[] calldata tokenIds) external onlyOwner {
         uint256 tokenIdsLength = tokenIds.length;
