@@ -1429,6 +1429,8 @@ contract StonerFeePool is
     mapping(uint256 => bool) public isStaked;
     // tokenId => staker (legacy/simple lookup)
     mapping(uint256 => address) public stakerOf;
+    // originalId => receiptId (CRITICAL: for proper burn)
+    mapping(uint256 => uint256) public receiptIdByOriginal;
 
     // rewards ledger (survives stake=0)
     mapping(address => uint256) public rewards;
@@ -1490,8 +1492,9 @@ contract StonerFeePool is
         // Timestamp analytics (lightweight)
         stakeInfos[tokenId] = StakeInfo({ staker: msg.sender, stakedAt: block.timestamp, active: true });
 
-        // Mint receipt token (SBT recommended)
-        receiptToken.mint(msg.sender, tokenId);
+        // Mint receipt token (SBT recommended) - STORE RECEIPT ID
+        uint256 receiptId = receiptToken.mint(msg.sender, tokenId);
+        receiptIdByOriginal[tokenId] = receiptId;
 
         // Supply & event
         unchecked { totalStaked += 1; }
@@ -1525,7 +1528,9 @@ contract StonerFeePool is
 
             stakeInfos[tokenId] = StakeInfo({ staker: msg.sender, stakedAt: block.timestamp, active: true });
 
-            receiptToken.mint(msg.sender, tokenId);
+            // STORE RECEIPT ID FOR PROPER BURN
+            uint256 receiptId = receiptToken.mint(msg.sender, tokenId);
+            receiptIdByOriginal[tokenId] = receiptId;
 
             unchecked { totalStaked += 1; }
             emit Staked(msg.sender, tokenId);
@@ -1538,8 +1543,11 @@ contract StonerFeePool is
         // Settle BEFORE balance changes
         _updateReward(msg.sender);
 
-        // Burn receipt & clear stake
-        receiptToken.burn(tokenId);
+        // Burn receipt & clear stake - USE CORRECT RECEIPT ID
+        uint256 receiptId = receiptIdByOriginal[tokenId];
+        if (receiptId == 0) revert("Missing receipt");
+        receiptToken.burn(receiptId);
+        delete receiptIdByOriginal[tokenId];
         delete stakerOf[tokenId];
         isStaked[tokenId] = false;
         stakeInfos[tokenId].active = false;
@@ -1568,7 +1576,11 @@ contract StonerFeePool is
         for (uint256 i = 0; i < n; ++i) {
             uint256 tokenId = tokenIds[i];
 
-            receiptToken.burn(tokenId);
+            // USE CORRECT RECEIPT ID FOR BURN
+            uint256 receiptId = receiptIdByOriginal[tokenId];
+            if (receiptId == 0) revert("Missing receipt");
+            receiptToken.burn(receiptId);
+            delete receiptIdByOriginal[tokenId];
             delete stakerOf[tokenId];
             isStaked[tokenId] = false;
             stakeInfos[tokenId].active = false;
@@ -1633,7 +1645,11 @@ contract StonerFeePool is
             for (uint256 i = n; i > 0; --i) {
                 uint256 tokenId = userTokens[i - 1];
 
-                receiptToken.burn(tokenId);
+                // USE CORRECT RECEIPT ID FOR BURN
+                uint256 receiptId = receiptIdByOriginal[tokenId];
+                if (receiptId == 0) revert("Missing receipt");
+                receiptToken.burn(receiptId);
+                delete receiptIdByOriginal[tokenId];
                 delete stakerOf[tokenId];
                 isStaked[tokenId] = false;
                 stakeInfos[tokenId].active = false;

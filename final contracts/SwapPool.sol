@@ -1110,6 +1110,7 @@ contract SwapPoolNative is
     function pause() external onlyOwner { _pause(); }
     function unpause() external onlyOwner { _unpause(); }
     function emergencyWithdraw(uint256 tokenId) external onlyOwner {
+        _removeTokenFromPool(tokenId); // FIX: Update accounting before transfer
         IERC721(nftCollection).safeTransferFrom(address(this), owner(), tokenId);
     }
     function emergencyWithdrawETH() external onlyOwner {
@@ -1118,6 +1119,7 @@ contract SwapPoolNative is
     function emergencyWithdrawBatch(uint256[] calldata tokenIds) external onlyOwner {
         uint256 tokenIdsLength = tokenIds.length;
         for (uint256 i = 0; i < tokenIdsLength; i++) {
+            _removeTokenFromPool(tokenIds[i]); // FIX: Update accounting before transfer
             IERC721(nftCollection).safeTransferFrom(address(this), owner(), tokenIds[i]);
         }
     }
