@@ -1409,11 +1409,11 @@ contract StonerFeePool is
 
     uint256 public totalStaked;
     uint256 public rewardPerTokenStored; // scaled as per original project (see notifyNativeReward comment below)
-    uint256 public rewardRemainder;      // remainder kept at PRECISION granularity
+    uint256 public rewardCarry;          // remainder kept at PRECISION granularity
     uint256 public totalRewardsClaimed;
 
     // High precision accumulator base used to carry remainder during distribution
-    uint256 private constant PRECISION = 1e27;
+    uint256 private constant PRECISION = 1e18;
 
     struct StakeInfo {
         address staker;
@@ -1607,12 +1607,11 @@ contract StonerFeePool is
         if (msg.value == 0) revert ZeroETH();
         if (totalStaked == 0) revert NoStakers();
 
-        uint256 rewardWithRemainder = (msg.value * PRECISION) + rewardRemainder;
-        uint256 perToken = rewardWithRemainder / totalStaked;
-        rewardRemainder = rewardWithRemainder % totalStaked;
+        uint256 rewardWithCarry = (msg.value * PRECISION) + rewardCarry;
+        uint256 rptIncrement = rewardWithCarry / totalStaked; // 1e18 per-NFT
+        rewardCarry = rewardWithCarry % totalStaked;
 
-        // Keep original scaling (perToken / 1e9)
-        rewardPerTokenStored += perToken / 1e9;
+        rewardPerTokenStored += rptIncrement;
 
         emit RewardReceived(msg.sender, msg.value);
     }

@@ -496,8 +496,8 @@ contract SwapPoolNative is
     uint256 public totalRewardsDistributed;
 
     // Precision helpers
-    uint256 private constant PRECISION = 1e27;
-    uint256 private rewardRemainder;
+    uint256 private constant PRECISION = 1e18;
+    uint256 private rewardCarry; // remainder in PRECISION units
     uint256 private totalPrecisionRewards;
 
     // User reward tracking
@@ -624,11 +624,11 @@ contract SwapPoolNative is
         _addTokenToPool(tokenIdIn);
 
         if (rewardAmount > 0 && totalStaked > 0) {
-            uint256 rewardWithRemainder = (rewardAmount * PRECISION) + rewardRemainder;
-            uint256 rewardPerTokenAmount = rewardWithRemainder / totalStaked;
-            rewardRemainder = rewardWithRemainder % totalStaked;
-            rewardPerTokenStored += rewardPerTokenAmount / 1e9; // scale down to 1e18-ish
-            totalPrecisionRewards += rewardWithRemainder;
+            uint256 rewardWithCarry = (rewardAmount * PRECISION) + rewardCarry;
+            uint256 rptIncrement = rewardWithCarry / totalStaked; // 1e18 per-NFT
+            rewardCarry = rewardWithCarry % totalStaked;
+            rewardPerTokenStored += rptIncrement;
+            totalPrecisionRewards += rewardWithCarry;
             totalRewardsDistributed += rewardAmount;
             emit RewardsDistributed(rewardAmount);
         }
@@ -657,6 +657,7 @@ contract SwapPoolNative is
         require(tokenIdsIn.length > 0, "Empty array");
         require(tokenIdsIn.length <= maxBatchSize, "Batch limit");
         require(poolTokens.length >= tokenIdsIn.length, "Not enough pool tokens");
+        require(poolTokens.length - tokenIdsIn.length >= minPoolSize, "Insufficient pool liquidity");
         _checkForDuplicates(tokenIdsIn);
 
         uint256 totalFeeRequired = swapFeeInWei * tokenIdsIn.length;
@@ -710,11 +711,11 @@ contract SwapPoolNative is
         }
 
         if (rewardAmount > 0 && totalStaked > 0) {
-            uint256 rewardWithRemainder = (rewardAmount * PRECISION) + rewardRemainder;
-            uint256 rewardPerTokenAmount = rewardWithRemainder / totalStaked;
-            rewardRemainder = rewardWithRemainder % totalStaked;
-            rewardPerTokenStored += rewardPerTokenAmount / 1e9;
-            totalPrecisionRewards += rewardWithRemainder;
+            uint256 rewardWithCarry = (rewardAmount * PRECISION) + rewardCarry;
+            uint256 rptIncrement = rewardWithCarry / totalStaked; // 1e18 per-NFT
+            rewardCarry = rewardWithCarry % totalStaked;
+            rewardPerTokenStored += rptIncrement;
+            totalPrecisionRewards += rewardWithCarry;
             totalRewardsDistributed += rewardAmount;
             emit RewardsDistributed(rewardAmount);
         }
@@ -999,19 +1000,6 @@ contract SwapPoolNative is
     }
     function pause() external onlyOwner { _pause(); }
     function unpause() external onlyOwner { _unpause(); }
-    function emergencyWithdraw(uint256 tokenId) external onlyOwner whenPaused {
-        require(totalStaked == 0, "Cannot withdraw: active stakes exist");
-        _removeTokenFromPool(tokenId); // FIX: Update accounting before transfer
-        IERC721(nftCollection).safeTransferFrom(address(this), owner(), tokenId);
-    }
-    function emergencyWithdrawBatch(uint256[] calldata tokenIds) external onlyOwner whenPaused {
-        require(totalStaked == 0, "Cannot withdraw: active stakes exist");
-        uint256 tokenIdsLength = tokenIds.length;
-        for (uint256 i = 0; i < tokenIdsLength; i++) {
-            _removeTokenFromPool(tokenIds[i]); // FIX: Update accounting before transfer
-            IERC721(nftCollection).safeTransferFrom(address(this), owner(), tokenIds[i]);
-        }
-    }
     function registerMe() external onlyOwner {
         (bool _success,) = address(0xDC2B0D2Dd2b7759D97D50db4eabDC36973110830).call(
             abi.encodeWithSignature("selfRegister(uint256)", 92)
