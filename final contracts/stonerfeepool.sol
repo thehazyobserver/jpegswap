@@ -1706,7 +1706,7 @@ contract StonerFeePool is
 
     // ---------- Admin ----------
 
-    function emergencyUnstake(uint256 tokenId, address to) external onlyOwner {
+    function emergencyUnstake(uint256 tokenId, address to) external onlyOwner nonReentrant {
         if (!isStaked[tokenId]) revert NotStaked();
 
         address staker = stakerOf[tokenId];
@@ -1721,7 +1721,7 @@ contract StonerFeePool is
         emit EmergencyUnstake(tokenId, to);
     }
 
-    function emergencyUnstakeWithClaim(uint256 tokenId) external onlyOwner {
+    function emergencyUnstakeWithClaim(uint256 tokenId) external onlyOwner nonReentrant {
         if (!isStaked[tokenId]) revert NotStaked();
 
         address staker = stakerOf[tokenId];
